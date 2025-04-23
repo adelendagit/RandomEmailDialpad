@@ -6,6 +6,17 @@ const qs = require('querystring');
 const app = express();
 const port = 3000;
 
+// Temporary in-memory token store (good for dev/testing)
+const tokenStore = {
+  access_token: null,
+  refresh_token: null
+};
+
+
+app.set('view engine', 'ejs');
+app.set('views', __dirname + '/views');
+
+
 // Redirect to Microsoft login
 app.get('/auth', (req, res) => {
   const authUrl = `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/authorize?${qs.stringify({
@@ -37,20 +48,42 @@ app.get('/auth/callback', async (req, res) => {
     );
 
     const accessToken = tokenResponse.data.access_token;
+    // Save the tokens
+tokenStore.access_token = tokenResponse.data.access_token;
+tokenStore.refresh_token = tokenResponse.data.refresh_token;
+
 
     // Example: List files from OneDrive root
     const graphResponse = await axios.get('https://graph.microsoft.com/v1.0/me/drive/root/children', {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    res.json({
-      message: 'Successfully authenticated!',
-      files: graphResponse.data.value
-    });
+    // res.json({
+    //   message: 'Successfully authenticated!',
+    //   files: graphResponse.data.value
+    // });
+    res.send(`<p>Authentication successful!</p><p><a href="/files">View your files</a></p>`);
+
 
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
     res.status(500).send('Authentication failed.');
+  }
+});
+
+app.get('/files', async (req, res) => {
+  if (!tokenStore.access_token) return res.redirect('/auth'); // force auth if no token
+
+  try {
+    const graphResponse = await axios.get('https://graph.microsoft.com/v1.0/me/drive/root/children', {
+      headers: { Authorization: `Bearer ${tokenStore.access_token}` }
+    });
+
+    const files = graphResponse.data.value;
+    res.render('files', { files });
+  } catch (error) {
+    console.error('Failed to fetch files:', error.response?.data || error.message);
+    res.status(500).send('Could not fetch files.');
   }
 });
 

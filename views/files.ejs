@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>My Microsoft Files</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+    h1 { text-align: center; }
+    .file-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 15px;
+      justify-content: center;
+    }
+    .file-card {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      width: 250px;
+      text-align: center;
+      word-wrap: break-word;
+    }
+    .file-name {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .file-link {
+      color: #0078d4;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <h1>My Microsoft Files</h1>
+  <div class="file-grid">
+    <% files.forEach(file => { %>
+      <div class="file-card">
+        <div class="file-name"><%= file.name %></div>
+        <% if (file.webUrl) { %>
+          <a class="file-link" href="<%= file.webUrl %>" target="_blank">Open File</a>
+        <% } else { %>
+          <em>No link available</em>
+        <% } %>
+      </div>
+    <% }); %>
+  </div>
+</body>
+</html>
