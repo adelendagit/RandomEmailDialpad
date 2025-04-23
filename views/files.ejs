@@ -33,6 +33,7 @@
 </head>
 <body>
   <h1>My Microsoft Files</h1>
+  <p style="text-align:center;">Welcome, <%= user.name %> | <a href="/logout">Logout</a></p>
   <div class="file-grid">
     <% files.forEach(file => { %>
       <div class="file-card">

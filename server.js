@@ -2,16 +2,18 @@ require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const qs = require('querystring');
+const session = require('express-session');
+
 
 const app = express();
 const port = 3000;
 
-// Temporary in-memory token store (good for dev/testing)
-const tokenStore = {
-  access_token: null,
-  refresh_token: null
-};
-
+app.use(session({
+  secret: `${process.env.EXPRESS_SESSION_SECRET}`, // change this to something secure in production
+  resave: false,
+  saveUninitialized: true,
+  cookie: { secure: true } // secure: true only if using HTTPS
+}));
 
 app.set('view engine', 'ejs');
 app.set('views', __dirname + '/views');
@@ -48,21 +50,26 @@ app.get('/auth/callback', async (req, res) => {
     );
 
     const accessToken = tokenResponse.data.access_token;
-    // Save the tokens
-tokenStore.access_token = tokenResponse.data.access_token;
-tokenStore.refresh_token = tokenResponse.data.refresh_token;
+    const refreshToken = tokenResponse.data.refresh_token;
 
-
-    // Example: List files from OneDrive root
-    const graphResponse = await axios.get('https://graph.microsoft.com/v1.0/me/drive/root/children', {
+    // Get the current user's info from Graph
+    const userResponse = await axios.get('https://graph.microsoft.com/v1.0/me', {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    // res.json({
-    //   message: 'Successfully authenticated!',
-    //   files: graphResponse.data.value
-    // });
-    res.send(`<p>Authentication successful!</p><p><a href="/files">View your files</a></p>`);
+    const userId = userResponse.data.id;
+    const displayName = userResponse.data.displayName;
+
+    // Save to session
+    req.session.user = {
+      id: userId,
+      name: displayName,
+      accessToken,
+      refreshToken
+    };
+
+    res.redirect('/files');
+
 
 
   } catch (error) {
@@ -72,11 +79,15 @@ tokenStore.refresh_token = tokenResponse.data.refresh_token;
 });
 
 app.get('/files', async (req, res) => {
-  if (!tokenStore.access_token) return res.redirect('/auth'); // force auth if no token
+  const user = req.session.user;
+
+  if (!user || !user.accessToken) {
+    return res.redirect('/auth');
+  }
 
   try {
     const graphResponse = await axios.get('https://graph.microsoft.com/v1.0/me/drive/root/children', {
-      headers: { Authorization: `Bearer ${tokenStore.access_token}` }
+      headers: { Authorization: `Bearer ${user.accessToken}` }
     });
 
     const files = graphResponse.data.value;
@@ -86,6 +97,13 @@ app.get('/files', async (req, res) => {
     res.status(500).send('Could not fetch files.');
   }
 });
+
+app.get('/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.redirect('/');
+  });
+});
+
 
 app.listen(port, () => {
   console.log(`App listening at http://localhost:${port}`);
