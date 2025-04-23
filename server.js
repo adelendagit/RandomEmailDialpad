@@ -100,6 +100,77 @@ app.get('/files', async (req, res) => {
   }
 });
 
+app.get('/shared-libraries', async (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+
+  try {
+    const siteResponse = await axios.get('https://graph.microsoft.com/v1.0/sites?search=*', {
+      headers: { Authorization: `Bearer ${user.accessToken}` }
+    });
+
+    const sites = siteResponse.data.value;
+
+    // Optionally: fetch document libraries (drives) for each site
+    const siteData = await Promise.all(
+      sites.map(async site => {
+        const driveRes = await axios.get(`https://graph.microsoft.com/v1.0/sites/${site.id}/drives`, {
+          headers: { Authorization: `Bearer ${user.accessToken}` }
+        });
+
+        return {
+          name: site.name,
+          webUrl: site.webUrl,
+          id: site.id, // <-- ADD this
+          drives: driveRes.data.value
+        };
+      })
+    );
+
+    res.render('shared', { sites: siteData, user });
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).send('Error fetching shared libraries.');
+  }
+});
+
+app.get('/shared-library/:siteId/:driveId', async (req, res) => {
+  const { siteId, driveId } = req.params;
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+
+  try {
+    const filesRes = await axios.get(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/children`, {
+      headers: { Authorization: `Bearer ${user.accessToken}` }
+    });
+
+    const items = filesRes.data.value;
+
+    res.render('library', { items, siteId, driveId, user });
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).send('Could not fetch shared library contents.');
+  }
+});
+
+app.get('/shared-library/:siteId/:driveId/folder/:itemId', async (req, res) => {
+  const { siteId, driveId, itemId } = req.params;
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+
+  try {
+    const folderRes = await axios.get(`https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/children`, {
+      headers: { Authorization: `Bearer ${user.accessToken}` }
+    });
+
+    const items = folderRes.data.value;
+    res.render('library', { items, siteId, driveId, user });
+  } catch (err) {
+    console.error(err.response?.data || err.message);
+    res.status(500).send('Could not fetch folder contents.');
+  }
+});
+
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
     res.redirect('/');

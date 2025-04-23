@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Shared Libraries</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; background: #f8f9fa; }
+    .site { margin-bottom: 2em; }
+    h2 { margin-bottom: 0.25em; }
+    ul { padding-left: 20px; }
+  </style>
+</head>
+<body>
+  <h1>Shared Libraries for <%= user.name %></h1>
+
+  <% sites.forEach(site => { %>
+    <div class="site">
+      <h2><a href="<%= site.webUrl %>" target="_blank"><%= site.name %></a></h2>
+      <ul>
+        <% site.drives.forEach(drive => { %>
+          <li>
+            <a href="/shared-library/<%= site.id %>/<%= drive.id %>">
+              <%= drive.name %>
+            </a>
+          </li>
+        <% }) %>
+      </ul>
+    </div>
+  <% }) %>
+</body>
+</html>
