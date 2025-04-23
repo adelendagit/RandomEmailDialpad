@@ -70,8 +70,7 @@ app.get('/auth/callback', async (req, res) => {
       refreshToken
     };
 
-    res.redirect('/files');
-
+    res.redirect('/shared-libraries');
 
 
   } catch (error) {
