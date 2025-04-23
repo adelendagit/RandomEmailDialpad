@@ -12,7 +12,7 @@ app.use(session({
   secret: `${process.env.EXPRESS_SESSION_SECRET}`, // change this to something secure in production
   resave: false,
   saveUninitialized: true,
-  cookie: { secure: true } // secure: true only if using HTTPS
+  cookie: { secure: false } // secure: true only if using HTTPS
 }));
 
 app.set('view engine', 'ejs');
@@ -26,7 +26,8 @@ app.get('/auth', (req, res) => {
     response_type: 'code',
     redirect_uri: process.env.REDIRECT_URI,
     response_mode: 'query',
-    scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
+    //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
+    scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
     state: '12345' // Optional: CSRF protection
   })}`;
   res.redirect(authUrl);
@@ -40,7 +41,8 @@ app.get('/auth/callback', async (req, res) => {
       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
       qs.stringify({
         client_id: process.env.CLIENT_ID,
-        scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
+        //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
+        scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
         code,
         redirect_uri: process.env.REDIRECT_URI,
         grant_type: 'authorization_code',
@@ -91,7 +93,7 @@ app.get('/files', async (req, res) => {
     });
 
     const files = graphResponse.data.value;
-    res.render('files', { files });
+    res.render('files', { files, user });
   } catch (error) {
     console.error('Failed to fetch files:', error.response?.data || error.message);
     res.status(500).send('Could not fetch files.');
