@@ -407,6 +407,52 @@ app.post('/search-emails', express.urlencoded({ extended: true }), async (req, r
   }
 });
 
+app.post('/search-emails/expand', express.urlencoded({ extended: true }), async (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.status(401).send('Unauthorized');
+
+  const targetEmail = req.body.email?.toLowerCase();
+  const subjectQuery = req.body.subject?.toLowerCase();
+
+  try {
+    const [inboxMessages, sentMessages] = await Promise.all([
+      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50', user.accessToken),
+      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50', user.accessToken)
+    ]);
+
+    let allMessages = [...inboxMessages, ...sentMessages];
+
+    allMessages = allMessages.filter(msg =>
+      msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
+      msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
+    );
+
+    if (subjectQuery) {
+      allMessages = allMessages.filter(msg =>
+        msg.subject?.toLowerCase().includes(subjectQuery)
+      );
+    }
+
+    const messages = allMessages
+      .sort((a, b) =>
+        new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
+      )
+      .map(msg => ({
+        ...msg,
+        body: {
+          ...msg.body,
+          content: stripQuotedText(msg.body?.content || '')
+        }
+      }));
+
+    res.json(messages);
+
+  } catch (err) {
+    console.error('Background load error:', err.response?.data || err.message);
+    res.status(500).send('Failed to load more messages.');
+  }
+});
+
 app.get("/dashboard", async (req, res) => {
   const user = req.session.user;
   if (!user || !user.accessToken) return res.redirect("/auth");
