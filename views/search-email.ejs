@@ -84,11 +84,21 @@
 <body>
   <h1>Search Emails Involving a Contact</h1>
   <form method="POST" action="/search-emails">
-    <input type="email" name="email" placeholder="someone@example.com" required value="<%= query || '' %>" />
-    <input type="text" name="subject" placeholder="(optional) Subject contains..." value="<%= subject || '' %>" />
+    <input
+      type="email"
+      name="email"
+      placeholder="someone@example.com"
+      required
+      value="<%= typeof query !== 'undefined' ? query : '' %>" />
+
+    <input
+      type="text"
+      name="subject"
+      placeholder="(optional) Subject contains..."
+      value="<%= typeof subject !== 'undefined' ? subject : '' %>" />
+
     <button type="submit">Search</button>
   </form>
-
   <% if (results) { %>
     <% if (results.length === 0) { %>
       <p>No recent emails found involving "<%= query %>".</p>
