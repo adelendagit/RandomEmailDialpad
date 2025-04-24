@@ -149,8 +149,9 @@
 
       // OPTIONAL: Trigger a UI update (you can build this out)
     })
-    .catch(err => {
-      console.error('Background fetch failed:', err);
+    .catch(async err => {
+      const text = await err?.response?.text?.() || err.message;
+      console.error('Background fetch failed:', text);
     });
   });
 </script>

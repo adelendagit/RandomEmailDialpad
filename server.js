@@ -39,6 +39,26 @@ function stripQuotedText(html) {
   return $.html();
 }
 
+async function fetchAllMessages(initialUrl, accessToken) {
+  let all = [];
+  let url = initialUrl;
+
+  while (url) {
+    const res = await axios.get(url, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    all = all.concat(res.data.value);
+    url = res.data['@odata.nextLink'] || null;
+
+    // Safety limit (optional)
+    if (all.length > 1000) break; // Prevent accidental infinite loop
+  }
+
+  return all;
+}
+
+
 app.use(
   session({
     secret: `${process.env.EXPRESS_SESSION_SECRET}`, // change this to something secure in production
@@ -449,7 +469,8 @@ app.post('/search-emails/expand', express.urlencoded({ extended: true }), async 
 
   } catch (err) {
     console.error('Background load error:', err.response?.data || err.message);
-    res.status(500).send('Failed to load more messages.');
+    //res.status(500).send('Failed to load more messages.');
+    res.status(500).json({ error: 'Failed to load more messages.' });
   }
 });
 
