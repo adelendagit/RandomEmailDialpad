@@ -80,7 +80,11 @@
               <strong><%= msg.subject || 'No subject' %></strong><br />
               <small>From: <%= msg.from?.emailAddress?.address %></small><br />
               <small>To: <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %></small>
+              <div class="chat-body" style="margin-top: 10px;">
+                <%- msg.body?.content || '<em>(no message body)</em>' %>
+              </div>
             </div>
+
           </div>
         <% }) %>
       </div>

@@ -8,6 +8,24 @@ const session = require('express-session');
 const app = express();
 const port = 3000;
 
+function stripQuotedText(html) {
+  // Basic strategies:
+  // 1. Remove blockquotes (common in Outlook/Gmail)
+  // 2. Remove lines starting with '>' (common in plain text)
+  // 3. Remove "From:" reply chains
+
+  // Remove <blockquote> elements
+  html = html.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, '');
+
+  // Remove lines starting with '>'
+  html = html.replace(/^>.*$/gim, '');
+
+  // Remove typical reply chain start
+  html = html.replace(/(?:On .* wrote:|From: .*<.*>.*|Sent: .*|To: .*|Subject: .*)[\s\S]*$/i, '');
+
+  return html.trim();
+}
+
 app.use(session({
   secret: `${process.env.EXPRESS_SESSION_SECRET}`, // change this to something secure in production
   resave: false,
@@ -281,9 +299,19 @@ app.post('/search-emails', express.urlencoded({ extended: true }), async (req, r
       msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
     );
 
+    // const messages = relevantMessages.sort((a, b) =>
+    //   new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
+    // );
     const messages = relevantMessages.sort((a, b) =>
       new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
-    );
+    ).map(msg => ({
+      ...msg,
+      body: {
+        ...msg.body,
+        content: stripQuotedText(msg.body?.content || '')
+      }
+    }));
+
 
     res.render('search-email', { user, results: messages, query: targetEmail });
   } catch (error) {
