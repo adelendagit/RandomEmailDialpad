@@ -27,7 +27,8 @@ app.get('/auth', (req, res) => {
     redirect_uri: process.env.REDIRECT_URI,
     response_mode: 'query',
     //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
-    scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
+    //scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
+    scope: 'https://graph.microsoft.com/Sites.Read.All Mail.Send offline_access',
     state: '12345' // Optional: CSRF protection
   })}`;
   res.redirect(authUrl);
@@ -42,7 +43,8 @@ app.get('/auth/callback', async (req, res) => {
       qs.stringify({
         client_id: process.env.CLIENT_ID,
         //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
-        scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
+        //scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
+        scope: 'https://graph.microsoft.com/Sites.Read.All Mail.Send offline_access',
         code,
         redirect_uri: process.env.REDIRECT_URI,
         grant_type: 'authorization_code',
@@ -70,7 +72,8 @@ app.get('/auth/callback', async (req, res) => {
       refreshToken
     };
 
-    res.redirect('/shared-libraries');
+    //res.redirect('/shared-libraries');
+    res.redirect('/dashboard');
 
 
   } catch (error) {
@@ -169,6 +172,57 @@ app.get('/shared-library/:siteId/:driveId/folder/:itemId', async (req, res) => {
     res.status(500).send('Could not fetch folder contents.');
   }
 });
+
+app.get('/send-email', (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+  res.render('send-email', { user });
+});
+
+app.post('/send-email', express.urlencoded({ extended: true }), async (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+
+  const { to, subject, body } = req.body;
+
+  const message = {
+    message: {
+      subject,
+      body: {
+        contentType: "Text",
+        content: body
+      },
+      toRecipients: [
+        {
+          emailAddress: {
+            address: to
+          }
+        }
+      ]
+    }
+  };
+
+  try {
+    await axios.post('https://graph.microsoft.com/v1.0/me/sendMail', message, {
+      headers: {
+        Authorization: `Bearer ${user.accessToken}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    res.send('<p>Email sent successfully! <a href="/send-email">Send another</a></p>');
+  } catch (err) {
+    console.error('Error sending email:', err.response?.data || err.message);
+    res.status(500).send('Failed to send email.');
+  }
+});
+
+app.get('/dashboard', (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+  res.render('dashboard', { user });
+});
+
 
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
