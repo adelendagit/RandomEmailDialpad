@@ -294,105 +294,63 @@ app.get("/search-emails", (req, res) => {
   res.render("search-email", { user, results: null, query: null });
 });
 
-// app.post('/search-emails', express.urlencoded({ extended: true }), async (req, res) => {
-//   const user = req.session.user;
-//   if (!user || !user.accessToken) return res.redirect('/auth');
+app.post('/search-emails', express.urlencoded({ extended: true }), async (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
 
-//   const targetEmail = req.body.email?.toLowerCase();
-//   if (!targetEmail) return res.redirect('/search-emails');
+  const targetEmail = req.body.email?.toLowerCase();
+  const subjectQuery = req.body.subject?.toLowerCase();
 
-//   try {
-//     const response = await axios.get(
-//       `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=100`,
-//       {
-//         headers: { Authorization: `Bearer ${user.accessToken}` }
-//       }
-//     );
+  if (!targetEmail) return res.redirect('/search-emails');
 
-//     const allMessages = response.data.value;
+  try {
+    const [inboxResponse, sentResponse] = await Promise.all([
+      axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50`, {
+        headers: { Authorization: `Bearer ${user.accessToken}` }
+      }),
+      axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50`, {
+        headers: { Authorization: `Bearer ${user.accessToken}` }
+      })
+    ]);
 
-//     const relevantMessages = allMessages.filter(msg =>
-//       msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
-//       msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
-//     );
+    const combinedMessages = [...inboxResponse.data.value, ...sentResponse.data.value];
 
-//     const messages = relevantMessages.sort((a, b) =>
-//       new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
-//     );
+    let relevantMessages = combinedMessages.filter(msg =>
+      msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
+      msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
+    );
 
-//     res.render('search-email', { user, results: messages, query: targetEmail });
-//   } catch (error) {
-//     console.error('Timeline error:', error.response?.data || error.message);
-//     res.status(500).send('Error building timeline.');
-//   }
-// });
-app.post(
-  "/search-emails",
-  express.urlencoded({ extended: true }),
-  async (req, res) => {
-    const user = req.session.user;
-    if (!user || !user.accessToken) return res.redirect("/auth");
-
-    const targetEmail = req.body.email?.toLowerCase();
-    if (!targetEmail) return res.redirect("/search-emails");
-
-    try {
-      const [inboxResponse, sentResponse] = await Promise.all([
-        axios.get(
-          `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50`,
-          {
-            headers: { Authorization: `Bearer ${user.accessToken}` },
-          }
-        ),
-        axios.get(
-          `https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50`,
-          {
-            headers: { Authorization: `Bearer ${user.accessToken}` },
-          }
-        ),
-      ]);
-
-      const combinedMessages = [
-        ...inboxResponse.data.value,
-        ...sentResponse.data.value,
-      ];
-
-      const relevantMessages = combinedMessages.filter(
-        (msg) =>
-          msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
-          msg.toRecipients?.some(
-            (r) => r.emailAddress?.address?.toLowerCase() === targetEmail
-          )
+    if (subjectQuery) {
+      relevantMessages = relevantMessages.filter(msg =>
+        msg.subject?.toLowerCase().includes(subjectQuery)
       );
-
-      // const messages = relevantMessages.sort((a, b) =>
-      //   new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
-      // );
-      const messages = relevantMessages
-        .sort(
-          (a, b) =>
-            new Date(b.receivedDateTime || b.sentDateTime) -
-            new Date(a.receivedDateTime || a.sentDateTime)
-        )
-        .map((msg) => ({
-          ...msg,
-          body: {
-            ...msg.body,
-            content: stripQuotedText(msg.body?.content || ""),
-          },
-        }));
-
-      res.render("search-email", {
-        user,
-        results: messages,
-        query: targetEmail,
-      });
-    } catch (error) {
-      console.error("Timeline error:", error.response?.data || error.message);
-      res.status(500).send("Error building timeline.");
     }
+
+    const messages = relevantMessages
+      .sort((a, b) =>
+        new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
+      )
+      .map(msg => ({
+        ...msg,
+        body: {
+          ...msg.body,
+          content: stripQuotedText(msg.body?.content || '')
+        }
+      }));
+
+    res.render('search-email', {
+      user,
+      results: messages,
+      query: targetEmail,
+      subject: subjectQuery
+    });
+
+  } catch (error) {
+    console.error('Timeline error:', error.response?.data || error.message);
+    res.status(500).send('Error building timeline.');
   }
-);
+});
+
 
 app.get("/dashboard", async (req, res) => {
   const user = req.session.user;
