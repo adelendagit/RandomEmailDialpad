@@ -12,31 +12,22 @@ function stripQuotedText(html) {
   const $ = cheerio.load(html);
 
   // Remove Outlook-style reply blocks
-  $('[id^="divRplyFwdMsg"]').remove();
-  $('[id^="x_divRplyFwdMsg"]').remove();
-  $('[id*="ms-outlook-mobile-body-separator-line"]').remove();
+  $('[id^="divRplyFwdMsg"], [id^="x_divRplyFwdMsg"], [id*="ms-outlook-mobile-body-separator-line"]').remove();
 
-  // Remove all <blockquote> elements (Gmail etc.)
-  $("blockquote").remove();
+  // Remove <blockquote> replies
+  $('blockquote').remove();
 
-  // Remove <hr> or sections with 'From:', 'Sent:', 'Subject:'
-  $("hr").each(function () {
-    const next = $(this).nextAll();
-    let foundMeta = false;
-    next.each(function () {
-      const text = $(this).text();
-      if (/from:|sent:|to:|subject:/i.test(text)) {
-        foundMeta = true;
-      }
-    });
-    if (foundMeta) {
-      $(this).nextAll().remove();
-      $(this).remove();
-    }
-  });
+  // Optionally trim after the first <hr>
+  const firstHr = $('hr').first();
+  if (firstHr.length > 0) {
+    // Remove everything after the <hr> (including it)
+    firstHr.nextAll().remove();
+    firstHr.remove();
+  }
 
-  // Remove Outlook name divs and tables (signatures)
+  // Remove known signature tables or lines
   $('[class^="MsoNormalTable"]').remove();
+
   $('[class*="MsoNormal"]').each((_, el) => {
     const text = $(el).text().trim();
     if (/^\s*Με εκτίμηση|^Best regards|Kind regards|Thanks/i.test(text)) {
