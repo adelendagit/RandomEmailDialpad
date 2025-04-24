@@ -39,6 +39,24 @@ function stripQuotedText(html) {
   return $.html();
 }
 
+// async function fetchAllMessages(initialUrl, accessToken) {
+//   let all = [];
+//   let url = initialUrl;
+
+//   while (url) {
+//     const res = await axios.get(url, {
+//       headers: { Authorization: `Bearer ${accessToken}` }
+//     });
+
+//     all = all.concat(res.data.value);
+//     url = res.data['@odata.nextLink'] || null;
+
+//     // Safety limit (optional)
+//     if (all.length > 1000) break; // Prevent accidental infinite loop
+//   }
+
+//   return all;
+// }
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
@@ -57,7 +75,6 @@ async function fetchAllMessages(initialUrl, accessToken) {
 
   return all;
 }
-
 
 app.use(
   session({
@@ -436,8 +453,11 @@ app.post('/search-emails/expand', express.urlencoded({ extended: true }), async 
 
   try {
     const [inboxMessages, sentMessages] = await Promise.all([
-      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50', user.accessToken),
-      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50', user.accessToken)
+      //fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50', user.accessToken),
+      //fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50', user.accessToken),
+      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime', user.accessToken),
+      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime', user.accessToken)
+
     ]);
 
     let allMessages = [...inboxMessages, ...sentMessages];
