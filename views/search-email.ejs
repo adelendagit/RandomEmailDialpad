@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Search Emails</title>
+  <style>
+    body { font-family: sans-serif; max-width: 700px; margin: 2em auto; }
+    input, button { padding: 10px; margin-top: 10px; width: 100%; }
+    .email-card { padding: 1em; border-bottom: 1px solid #ddd; }
+    .email-card h4 { margin: 0; }
+    .email-card p { margin: 0.25em 0; color: #555; }
+  </style>
+</head>
+<body>
+  <h1>Search Emails Involving a Contact</h1>
+
+  <form method="POST" action="/search-emails">
+    <input type="email" name="email" placeholder="someone@example.com" required value="<%= query || '' %>" />
+    <button type="submit">Search</button>
+  </form>
+
+  <% if (results) { %>
+    <h2>Recent Emails Involving <%= query %></h2>
+    <% if (results.length === 0) { %>
+      <p>No recent emails found.</p>
+    <% } else { %>
+      <% results.forEach(msg => { %>
+        <div class="email-card">
+          <h4><%= msg.subject || 'No subject' %></h4>
+          <p>From: <%= msg.from?.emailAddress?.address %></p>
+          <p>To: <%= msg.toRecipients?.map(r => r.emailAddress.address).join(', ') %></p>
+          <p><em><%= new Date(msg.receivedDateTime).toLocaleString() %></em></p>
+        </div>
+      <% }) %>
+    <% } %>
+  <% } %>
+</body>
+</html>

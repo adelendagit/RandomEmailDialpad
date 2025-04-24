@@ -219,6 +219,34 @@ app.post('/send-email', express.urlencoded({ extended: true }), async (req, res)
   }
 });
 
+app.get('/search-emails', (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+  res.render('search-email', { user, results: null, query: null });
+});
+
+app.post('/search-emails', express.urlencoded({ extended: true }), async (req, res) => {
+  const user = req.session.user;
+  if (!user || !user.accessToken) return res.redirect('/auth');
+
+  const targetEmail = req.body.email;
+  if (!targetEmail) return res.redirect('/search-emails');
+
+  const filter = `from/emailAddress/address eq '${targetEmail}' or toRecipients/any(r:r/emailAddress/address eq '${targetEmail}')`;
+
+  try {
+    const response = await axios.get(`https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$top=10&$orderby=receivedDateTime desc`, {
+      headers: { Authorization: `Bearer ${user.accessToken}` }
+    });
+
+    const messages = response.data.value;
+    res.render('search-email', { user, results: messages, query: targetEmail });
+  } catch (error) {
+    console.error('Search email error:', error.response?.data || error.message);
+    res.status(500).send('Error searching emails.');
+  }
+});
+
 app.get('/dashboard', async (req, res) => {
   const user = req.session.user;
   if (!user || !user.accessToken) return res.redirect('/auth');
