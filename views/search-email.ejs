@@ -21,14 +21,21 @@
     <% if (results.length === 0) { %>
       <p>No recent emails found.</p>
     <% } else { %>
-      <% results.forEach(msg => { %>
-        <div class="email-card">
-          <h4><%= msg.subject || 'No subject' %></h4>
-          <p>From: <%= msg.from?.emailAddress?.address %></p>
-          <p>To: <%= msg.toRecipients?.map(r => r.emailAddress.address).join(', ') %></p>
-          <p><em><%= new Date(msg.receivedDateTime).toLocaleString() %></em></p>
+      <h2>Timeline for <%= query %></h2>
+        <div style="border-left: 3px solid #0078d4; padding-left: 15px;">
+          <% results.forEach(msg => { %>
+            <div style="margin-bottom: 20px;">
+              <p style="margin: 0; color: gray;"><%= new Date(msg.receivedDateTime).toLocaleString() %></p>
+              <p style="margin: 0;"><strong><%= msg.subject || 'No subject' %></strong></p>
+              <p style="margin: 0;">
+                <small>
+                  From: <%= msg.from?.emailAddress?.address %><br>
+                  To: <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %>
+                </small>
+              </p>
+            </div>
+          <% }) %>
         </div>
-      <% }) %>
     <% } %>
   <% } %>
 </body>

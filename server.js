@@ -229,26 +229,32 @@ app.post('/search-emails', express.urlencoded({ extended: true }), async (req, r
   const user = req.session.user;
   if (!user || !user.accessToken) return res.redirect('/auth');
 
-  const targetEmail = req.body.email;
+  const targetEmail = req.body.email?.toLowerCase();
   if (!targetEmail) return res.redirect('/search-emails');
-
-  const filter = `from/emailAddress/address eq '${targetEmail}'`;
 
   try {
     const response = await axios.get(
-      `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$top=10`,
+      `https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=100`,
       {
-        headers: {
-          Authorization: `Bearer ${user.accessToken}`
-        }
+        headers: { Authorization: `Bearer ${user.accessToken}` }
       }
     );
 
-    const messages = response.data.value;
+    const allMessages = response.data.value;
+
+    const relevantMessages = allMessages.filter(msg =>
+      msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
+      msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
+    );
+
+    const messages = relevantMessages.sort((a, b) =>
+      new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
+    );
+
     res.render('search-email', { user, results: messages, query: targetEmail });
   } catch (error) {
-    console.error('Search email error:', error.response?.data || error.message);
-    res.status(500).send('Error searching emails.');
+    console.error('Timeline error:', error.response?.data || error.message);
+    res.status(500).send('Error building timeline.');
   }
 });
 
