@@ -3,27 +3,49 @@ const express = require('express');
 const axios = require('axios');
 const qs = require('querystring');
 const session = require('express-session');
-
+const cheerio = require('cheerio');
 
 const app = express();
 const port = 3000;
 
 function stripQuotedText(html) {
-  // Basic strategies:
-  // 1. Remove blockquotes (common in Outlook/Gmail)
-  // 2. Remove lines starting with '>' (common in plain text)
-  // 3. Remove "From:" reply chains
+  const $ = cheerio.load(html);
 
-  // Remove <blockquote> elements
-  html = html.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, '');
+  // Remove Outlook-style reply blocks
+  $('[id^="divRplyFwdMsg"]').remove();
+  $('[id^="x_divRplyFwdMsg"]').remove();
+  $('[id*="ms-outlook-mobile-body-separator-line"]').remove();
 
-  // Remove lines starting with '>'
-  html = html.replace(/^>.*$/gim, '');
+  // Remove all <blockquote> elements (Gmail etc.)
+  $('blockquote').remove();
 
-  // Remove typical reply chain start
-  html = html.replace(/(?:On .* wrote:|From: .*<.*>.*|Sent: .*|To: .*|Subject: .*)[\s\S]*$/i, '');
+  // Remove <hr> or sections with 'From:', 'Sent:', 'Subject:'
+  $('hr').each(function () {
+    const next = $(this).nextAll();
+    let foundMeta = false;
+    next.each(function () {
+      const text = $(this).text();
+      if (/from:|sent:|to:|subject:/i.test(text)) {
+        foundMeta = true;
+      }
+    });
+    if (foundMeta) {
+      $(this).nextAll().remove();
+      $(this).remove();
+    }
+  });
 
-  return html.trim();
+  // Remove Outlook name divs and tables (signatures)
+  $('[class^="MsoNormalTable"]').remove();
+  $('[class*="MsoNormal"]').each((_, el) => {
+    const text = $(el).text().trim();
+    if (/^\s*Με εκτίμηση|^Best regards|Kind regards|Thanks/i.test(text)) {
+      $(el).nextAll().remove();
+      $(el).remove();
+    }
+  });
+
+  return $.html();
 }
 
 app.use(session({
