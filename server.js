@@ -232,12 +232,17 @@ app.post('/search-emails', express.urlencoded({ extended: true }), async (req, r
   const targetEmail = req.body.email;
   if (!targetEmail) return res.redirect('/search-emails');
 
-  const filter = `from/emailAddress/address eq '${targetEmail}' or toRecipients/any(r:r/emailAddress/address eq '${targetEmail}')`;
+  const filter = `from/emailAddress/address eq '${targetEmail}'`;
 
   try {
-    const response = await axios.get(`https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$top=10&$orderby=receivedDateTime desc`, {
-      headers: { Authorization: `Bearer ${user.accessToken}` }
-    });
+    const response = await axios.get(
+      `https://graph.microsoft.com/v1.0/me/messages?$filter=${encodeURIComponent(filter)}&$top=10`,
+      {
+        headers: {
+          Authorization: `Bearer ${user.accessToken}`
+        }
+      }
+    );
 
     const messages = response.data.value;
     res.render('search-email', { user, results: messages, query: targetEmail });
