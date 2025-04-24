@@ -9,6 +9,50 @@
     .email-card h4 { margin: 0; }
     .email-card p { margin: 0.25em 0; color: #555; }
   </style>
+  <style>
+    .chat-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      padding: 20px;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .chat-message {
+      display: flex;
+    }
+
+    .chat-message.sent {
+      justify-content: flex-end;
+    }
+
+    .chat-message.received {
+      justify-content: flex-start;
+    }
+
+    .chat-bubble {
+      background: #f1f1f1;
+      padding: 12px 16px;
+      border-radius: 18px;
+      max-width: 75%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      position: relative;
+      font-size: 0.95em;
+    }
+
+    .chat-message.sent .chat-bubble {
+      background: #0078d4;
+      color: white;
+    }
+
+    .chat-meta {
+      font-size: 0.8em;
+      color: gray;
+      margin-bottom: 6px;
+    }
+  </style>
+
 </head>
 <body>
   <h1>Search Emails Sent From an Address</h1>
@@ -21,21 +65,25 @@
     <% if (results.length === 0) { %>
       <p>No recent emails found.</p>
     <% } else { %>
-      <h2>Timeline for <%= query %></h2>
-        <div style="border-left: 3px solid #0078d4; padding-left: 15px;">
-          <% results.forEach(msg => { %>
-            <div style="margin-bottom: 20px;">
-              <p style="margin: 0; color: gray;"><%= new Date(msg.receivedDateTime).toLocaleString() %></p>
-              <p style="margin: 0;"><strong><%= msg.subject || 'No subject' %></strong></p>
-              <p style="margin: 0;">
-                <small>
-                  From: <%= msg.from?.emailAddress?.address %><br>
-                  To: <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %>
-                </small>
-              </p>
+      <h2>Conversation with <%= query %></h2>
+      <div class="chat-thread">
+        <% results.forEach(msg => {
+          const isSent = msg.from?.emailAddress?.address.toLowerCase() === user.email.toLowerCase();
+          const side = isSent ? 'sent' : 'received';
+          const date = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
+        %>
+          <div class="chat-message <%= side %>">
+            <div class="chat-bubble">
+              <div class="chat-meta">
+                <small><%= date %></small>
+              </div>
+              <strong><%= msg.subject || 'No subject' %></strong><br />
+              <small>From: <%= msg.from?.emailAddress?.address %></small><br />
+              <small>To: <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %></small>
             </div>
-          <% }) %>
-        </div>
+          </div>
+        <% }) %>
+      </div>
     <% } %>
   <% } %>
 </body>
