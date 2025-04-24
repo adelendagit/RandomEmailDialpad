@@ -63,18 +63,20 @@ app.get('/auth/callback', async (req, res) => {
 
     const userId = userResponse.data.id;
     const displayName = userResponse.data.displayName;
+    const userEmail = userResponse.data.mail || userResponse.data.userPrincipalName;
 
-    // Save to session
     req.session.user = {
       id: userId,
       name: displayName,
+      email: userEmail,
       accessToken,
       refreshToken
     };
 
-    //res.redirect('/shared-libraries');
-    res.redirect('/dashboard');
 
+    //res.redirect('/shared-libraries');
+    //res.redirect('/dashboard');
+    res.redirect('/');
 
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
@@ -217,12 +219,26 @@ app.post('/send-email', express.urlencoded({ extended: true }), async (req, res)
   }
 });
 
-app.get('/dashboard', (req, res) => {
+app.get('/dashboard', async (req, res) => {
   const user = req.session.user;
   if (!user || !user.accessToken) return res.redirect('/auth');
-  res.render('dashboard', { user });
-});
 
+  let photoDataUrl = null;
+
+  try {
+    const photoResponse = await axios.get('https://graph.microsoft.com/v1.0/me/photo/$value', {
+      headers: { Authorization: `Bearer ${user.accessToken}` },
+      responseType: 'arraybuffer'
+    });
+
+    const photoBase64 = Buffer.from(photoResponse.data, 'binary').toString('base64');
+    photoDataUrl = `data:image/jpeg;base64,${photoBase64}`;
+  } catch (err) {
+    console.warn('No profile photo found or error loading photo.');
+  }
+
+  res.render('dashboard', { user, photoDataUrl });
+});
 
 app.get('/logout', (req, res) => {
   req.session.destroy(() => {
@@ -230,6 +246,14 @@ app.get('/logout', (req, res) => {
   });
 });
 
+app.get('/', (req, res) => {
+  const user = req.session.user;
+  if (user && user.accessToken) {
+    res.redirect('/dashboard');
+  } else {
+    res.redirect('/auth');
+  }
+});
 
 app.listen(port, () => {
   console.log(`App listening at http://localhost:${port}`);

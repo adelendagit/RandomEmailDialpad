@@ -28,6 +28,12 @@
 </head>
 <body>
   <h1>Welcome, <%= user.name %></h1>
+  <% if (photoDataUrl) { %>
+    <img src="<%= photoDataUrl %>" alt="Profile photo" style="width: 120px; height: 120px; border-radius: 50%; margin: 1em auto; display: block;" />
+  <% } %>
+  <% if (user.email) { %>
+    <p style="color: #666; margin-top: -10px; text-align: center; font-size: 0.95em;"><%= user.email %></p>
+  <% } %>
   <div class="menu">
     <a href="/shared-libraries">📂 View Shared Libraries</a>
     <a href="/files">📁 View Personal Files</a>
