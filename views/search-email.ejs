@@ -110,7 +110,7 @@
           const side = isSent ? 'sent' : 'received';
           const date = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
         %>
-          <div class="chat-message <%= side %>">
+          <div class="chat-message <%= side %>" data-id="<%= msg.id %>">
             <div class="chat-bubble">
               <div class="chat-meta">
                 <small><%= date %></small>
@@ -128,32 +128,60 @@
     <% } %>
   <% } %>
 </body>
-      <script>
-  window.addEventListener('DOMContentLoaded', () => {
-    fetch('/search-emails/expand', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        email: '<%= query %>',
-        subject: '<%= typeof subject !== "undefined" ? subject : "" %>'
-      })
-    })
-    .then(res => res.json())
-    .then(extraMessages => {
-      console.log('Fetched extra messages:', extraMessages.length);
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  // Collect IDs of already‐rendered messages
+  const existing = new Set(
+    Array.from(document.querySelectorAll('.chat-message'))
+         .map(el => el.getAttribute('data-id'))
+  );
 
-      // You can now:
-      // 1. Append them to the DOM
-      // 2. Replace existing content
-      // 3. Show a "Load more" button
-
-      // OPTIONAL: Trigger a UI update (you can build this out)
+  // Post email+subject to expand endpoint
+  fetch('/search-emails/expand', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      email: '<%= query %>',
+      subject: '<%= typeof subject !== "undefined" ? subject : "" %>'
     })
-    .catch(async err => {
-      const text = await err?.response?.text?.() || err.message;
-      console.error('Background fetch failed:', text);
+  })
+  .then(res => res.json())
+  .then(extra => {
+    const thread = document.querySelector('.chat-thread');
+    extra.forEach(msg => {
+      // Skip ones we already have
+      if (existing.has(msg.id)) return;
+
+      // Determine sent vs received
+      const isSent = msg.from?.emailAddress?.address.toLowerCase() === '<%= user.email.toLowerCase() %>';
+      const side = isSent ? 'sent' : 'received';
+      const date = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
+
+      // Build bubble element
+      const wrapper = document.createElement('div');
+      wrapper.className = `chat-message ${side}`;
+      wrapper.setAttribute('data-id', msg.id);
+
+      const bubble = document.createElement('div');
+      bubble.className = 'chat-bubble';
+
+      bubble.innerHTML = `
+        <div class="chat-meta"><small>${date}</small></div>
+        <strong>${msg.subject || 'No subject'}</strong><br/>
+        <small>From: ${msg.from.emailAddress.address}</small><br/>
+        <small>To: ${msg.toRecipients.map(r=>r.emailAddress.address).join(', ')}</small>
+        <div class="chat-body" style="margin-top:10px;">
+          ${msg.body.content}
+        </div>
+      `;
+
+      wrapper.appendChild(bubble);
+      thread.appendChild(wrapper);
     });
-  });
+  })
+  .catch(err => console.error('Expand failed:', err));
+});
 </script>
+
 
 </html>
