@@ -6,38 +6,48 @@ const session = require("express-session");
 const cheerio = require("cheerio");
 
 const app = express();
-const port = 3000;
+const port = process.env.PORT || 3000;
 
-// Near the top of server.js, define your “all-messages” URL once:
+// ——— Configuration —————————————————————————————————————————————
+
+// Base Graph endpoint pulling 50 newest messages (all folders), including webLink
 const MESSAGES_URL =
-  'https://graph.microsoft.com/v1.0/me/messages' +
-  '?$top=50' +
-  '&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink' +
-  '&$orderby=receivedDateTime desc';
+  "https://graph.microsoft.com/v1.0/me/messages" +
+  "?$top=50" +
+  "&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink" +
+  "&$orderby=receivedDateTime desc";
 
+// ——— Helpers ————————————————————————————————————————————————
+
+/**
+ * Strips quoted text, signatures, <hr> dividers, and cid: images
+ */
 function stripQuotedText(html) {
   const $ = cheerio.load(html);
 
-  // Remove Outlook-style reply blocks
+  // Remove embedded cid images
+  $('img[src^="cid:"]').remove();
+
+  // Outlook reply blocks
   $('[id^="divRplyFwdMsg"], [id^="x_divRplyFwdMsg"], [id*="ms-outlook-mobile-body-separator-line"]').remove();
 
-  // Remove <blockquote> replies
-  $('blockquote').remove();
+  // Blockquote replies
+  $("blockquote").remove();
 
-  // Optionally trim after the first <hr>
-  const firstHr = $('hr').first();
-  if (firstHr.length > 0) {
-    // Remove everything after the <hr> (including it)
-    firstHr.nextAll().remove();
-    firstHr.remove();
+  // Trim after first <hr>
+  const hr = $("hr").first();
+  if (hr.length) {
+    hr.nextAll().remove();
+    hr.remove();
   }
 
-  // Remove known signature tables or lines
+  // Signature tables
   $('[class^="MsoNormalTable"]').remove();
 
+  // Common signature lines
   $('[class*="MsoNormal"]').each((_, el) => {
-    const text = $(el).text().trim();
-    if (/^\s*Με εκτίμηση|^Best regards|Kind regards|Thanks/i.test(text)) {
+    const t = $(el).text().trim();
+    if (/^\s*(Με εκτίμηση|Best regards|Kind regards|Thanks)/i.test(t)) {
       $(el).nextAll().remove();
       $(el).remove();
     }
@@ -46,24 +56,9 @@ function stripQuotedText(html) {
   return $.html();
 }
 
-// async function fetchAllMessages(initialUrl, accessToken) {
-//   let all = [];
-//   let url = initialUrl;
-
-//   while (url) {
-//     const res = await axios.get(url, {
-//       headers: { Authorization: `Bearer ${accessToken}` }
-//     });
-
-//     all = all.concat(res.data.value);
-//     url = res.data['@odata.nextLink'] || null;
-
-//     // Safety limit (optional)
-//     if (all.length > 1000) break; // Prevent accidental infinite loop
-//   }
-
-//   return all;
-// }
+/**
+ * Paginates through every page of a Graph query via @odata.nextLink
+ */
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
@@ -72,426 +67,230 @@ async function fetchAllMessages(initialUrl, accessToken) {
     const res = await axios.get(url, {
       headers: { Authorization: `Bearer ${accessToken}` }
     });
-
     all = all.concat(res.data.value);
-    url = res.data['@odata.nextLink'] || null;
-
-    // Safety limit (optional)
-    if (all.length > 1000) break; // Prevent accidental infinite loop
+    url = res.data["@odata.nextLink"] || null;
+    // safety cap
+    if (all.length > 2000) break;
   }
 
   return all;
 }
 
+// ——— App Setup ——————————————————————————————————————————————
+
+app.use(express.urlencoded({ extended: true }));
 app.use(
   session({
-    secret: `${process.env.EXPRESS_SESSION_SECRET}`, // change this to something secure in production
+    secret: process.env.EXPRESS_SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false }, // secure: true only if using HTTPS
+    cookie: { secure: false } // set to true if you have HTTPS
   })
 );
 
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
-// Redirect to Microsoft login
+// ——— Authentication ————————————————————————————————————————————
+
 app.get("/auth", (req, res) => {
-  const authUrl = `https://login.microsoftonline.com/${
-    process.env.TENANT_ID
-  }/oauth2/v2.0/authorize?${qs.stringify({
+  const params = qs.stringify({
     client_id: process.env.CLIENT_ID,
     response_type: "code",
     redirect_uri: process.env.REDIRECT_URI,
     response_mode: "query",
-    //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
-    //scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
     scope:
-      "https://graph.microsoft.com/Sites.Read.All Mail.Send offline_access",
-    state: "12345", // Optional: CSRF protection
-  })}`;
-  res.redirect(authUrl);
+      "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+    state: "12345"
+  });
+  res.redirect(
+    `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/authorize?${params}`
+  );
 });
 
-// Callback from Microsoft
 app.get("/auth/callback", async (req, res) => {
-  const code = req.query.code;
   try {
-    const tokenResponse = await axios.post(
+    const code = req.query.code;
+    const tokenRes = await axios.post(
       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
       qs.stringify({
         client_id: process.env.CLIENT_ID,
-        //scope: 'https://graph.microsoft.com/Files.ReadWrite.All offline_access',
-        //scope: 'https://graph.microsoft.com/Sites.Read.All offline_access',
         scope:
-          "https://graph.microsoft.com/Sites.Read.All Mail.Send offline_access",
+          "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
         code,
         redirect_uri: process.env.REDIRECT_URI,
         grant_type: "authorization_code",
-        client_secret: process.env.CLIENT_SECRET,
+        client_secret: process.env.CLIENT_SECRET
       }),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
 
-    const accessToken = tokenResponse.data.access_token;
-    const refreshToken = tokenResponse.data.refresh_token;
-
-    // Get the current user's info from Graph
-    const userResponse = await axios.get(
-      "https://graph.microsoft.com/v1.0/me",
-      {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }
-    );
-
-    const userId = userResponse.data.id;
-    const displayName = userResponse.data.displayName;
-    const userEmail =
-      userResponse.data.mail || userResponse.data.userPrincipalName;
+    const accessToken = tokenRes.data.access_token;
+    const userRes = await axios.get("https://graph.microsoft.com/v1.0/me", {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
 
     req.session.user = {
-      id: userId,
-      name: displayName,
-      email: userEmail,
+      id: userRes.data.id,
+      name: userRes.data.displayName,
+      email: userRes.data.mail || userRes.data.userPrincipalName,
       accessToken,
-      refreshToken,
+      refreshToken: tokenRes.data.refresh_token
     };
 
-    //res.redirect('/shared-libraries');
-    //res.redirect('/dashboard');
     res.redirect("/");
-  } catch (error) {
-    console.error(
-      "OAuth callback error:",
-      error.response?.data || error.message
-    );
+  } catch (err) {
+    console.error("Auth callback error:", err.response?.data || err.message);
     res.status(500).send("Authentication failed.");
   }
 });
 
-app.get("/files", async (req, res) => {
-  const user = req.session.user;
+// ——— Dashboard & Logout ——————————————————————————————————————
 
-  if (!user || !user.accessToken) {
-    return res.redirect("/auth");
-  }
-
-  try {
-    const graphResponse = await axios.get(
-      "https://graph.microsoft.com/v1.0/me/drive/root/children",
-      {
-        headers: { Authorization: `Bearer ${user.accessToken}` },
-      }
-    );
-
-    const files = graphResponse.data.value;
-    res.render("files", { files, user });
-  } catch (error) {
-    console.error(
-      "Failed to fetch files:",
-      error.response?.data || error.message
-    );
-    res.status(500).send("Could not fetch files.");
-  }
-});
-
-app.get("/shared-libraries", async (req, res) => {
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
-
-  try {
-    const siteResponse = await axios.get(
-      "https://graph.microsoft.com/v1.0/sites?search=*",
-      {
-        headers: { Authorization: `Bearer ${user.accessToken}` },
-      }
-    );
-
-    const sites = siteResponse.data.value;
-
-    // Optionally: fetch document libraries (drives) for each site
-    const siteData = await Promise.all(
-      sites.map(async (site) => {
-        const driveRes = await axios.get(
-          `https://graph.microsoft.com/v1.0/sites/${site.id}/drives`,
-          {
-            headers: { Authorization: `Bearer ${user.accessToken}` },
-          }
-        );
-
-        return {
-          name: site.name,
-          webUrl: site.webUrl,
-          id: site.id, // <-- ADD this
-          drives: driveRes.data.value,
-        };
-      })
-    );
-
-    res.render("shared", { sites: siteData, user });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).send("Error fetching shared libraries.");
-  }
-});
-
-app.get("/shared-library/:siteId/:driveId", async (req, res) => {
-  const { siteId, driveId } = req.params;
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
-
-  try {
-    const filesRes = await axios.get(
-      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/children`,
-      {
-        headers: { Authorization: `Bearer ${user.accessToken}` },
-      }
-    );
-
-    const items = filesRes.data.value;
-
-    res.render("library", { items, siteId, driveId, user });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).send("Could not fetch shared library contents.");
-  }
-});
-
-app.get("/shared-library/:siteId/:driveId/folder/:itemId", async (req, res) => {
-  const { siteId, driveId, itemId } = req.params;
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
-
-  try {
-    const folderRes = await axios.get(
-      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/children`,
-      {
-        headers: { Authorization: `Bearer ${user.accessToken}` },
-      }
-    );
-
-    const items = folderRes.data.value;
-    res.render("library", { items, siteId, driveId, user });
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.status(500).send("Could not fetch folder contents.");
-  }
-});
-
-app.get("/send-email", (req, res) => {
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
-  res.render("send-email", { user });
-});
-
-app.post(
-  "/send-email",
-  express.urlencoded({ extended: true }),
-  async (req, res) => {
-    const user = req.session.user;
-    if (!user || !user.accessToken) return res.redirect("/auth");
-
-    const { to, subject, body } = req.body;
-
-    const message = {
-      message: {
-        subject,
-        body: {
-          contentType: "Text",
-          content: body,
-        },
-        toRecipients: [
-          {
-            emailAddress: {
-              address: to,
-            },
-          },
-        ],
-      },
-    };
-
-    try {
-      await axios.post(
-        "https://graph.microsoft.com/v1.0/me/sendMail",
-        message,
-        {
-          headers: {
-            Authorization: `Bearer ${user.accessToken}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      res.send(
-        '<p>Email sent successfully! <a href="/send-email">Send another</a></p>'
-      );
-    } catch (err) {
-      console.error("Error sending email:", err.response?.data || err.message);
-      res.status(500).send("Failed to send email.");
-    }
-  }
-);
-
-app.get("/search-emails", (req, res) => {
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
-  res.render("search-email", { user, results: null, query: null });
-});
-
-app.post('/search-emails', express.urlencoded({ extended: true }), async (req, res) => {
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect('/auth');
-
-  const targetEmail = req.body.email?.toLowerCase();
-  const subjectQuery = req.body.subject?.toLowerCase();
-
-  if (!targetEmail) return res.redirect('/search-emails');
-
-  try {
-//     const [inboxResponse, sentResponse] = await Promise.all([
-//       axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50`, {
-//         headers: { Authorization: `Bearer ${user.accessToken}` }
-//       }),
-//       axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50`, {
-//         headers: { Authorization: `Bearer ${user.accessToken}` }
-//       })
-//     ]);
-
-//     const combinedMessages = [...inboxResponse.data.value, ...sentResponse.data.value];
-    // 1) fetch first 50 across all folders
-    const initialRes = await axios.get(MESSAGES_URL, {
-      headers: { Authorization: `Bearer ${user.accessToken}` }
-    });
-    let msgs = initialRes.data.value;
-    let combinedMessages = msgs;
-
-    let relevantMessages = combinedMessages.filter(msg =>
-      msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
-      msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
-    );
-
-    if (subjectQuery) {
-      relevantMessages = relevantMessages.filter(msg =>
-        msg.subject?.toLowerCase().includes(subjectQuery)
-      );
-    }
-
-    const messages = relevantMessages
-      .sort((a, b) =>
-        new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
-      )
-      .map(msg => ({
-        ...msg,
-        body: {
-          ...msg.body,
-          content: stripQuotedText(msg.body?.content || '')
-        }
-      }));
-
-    res.render('search-email', {
-      user,
-      results: messages,
-      query: targetEmail,
-      subject: subjectQuery
-    });
-
-  } catch (error) {
-    console.error('Timeline error:', error.response?.data || error.message);
-    res.status(500).send('Error building timeline.');
-  }
-});
-
-app.post('/search-emails/expand', express.urlencoded({ extended: true }), async (req, res) => {
-  const user = req.session.user;
-  if (!user || !user.accessToken) return res.status(401).send('Unauthorized');
-
-  const targetEmail = req.body.email?.toLowerCase();
-  const subjectQuery = req.body.subject?.toLowerCase();
-
-  try {
-    const [inboxMessages, sentMessages] = await Promise.all([
-      //fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50', user.accessToken),
-      //fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50', user.accessToken),
-      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime', user.accessToken),
-      fetchAllMessages('https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime', user.accessToken)
-
-    ]);
-
-    let allMessages = [...inboxMessages, ...sentMessages];
-
-    allMessages = allMessages.filter(msg =>
-      msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
-      msg.toRecipients?.some(r => r.emailAddress?.address?.toLowerCase() === targetEmail)
-    );
-
-    if (subjectQuery) {
-      allMessages = allMessages.filter(msg =>
-        msg.subject?.toLowerCase().includes(subjectQuery)
-      );
-    }
-
-    const messages = allMessages
-      .sort((a, b) =>
-        new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime)
-      )
-      .map(msg => ({
-        ...msg,
-        body: {
-          ...msg.body,
-          content: stripQuotedText(msg.body?.content || '')
-        }
-      }));
-
-    res.json(messages);
-
-  } catch (err) {
-    console.error('Background load error:', err.response?.data || err.message);
-    //res.status(500).send('Failed to load more messages.');
-    res.status(500).json({ error: 'Failed to load more messages.' });
-  }
+app.get("/", (req, res) => {
+  if (!req.session.user?.accessToken) return res.redirect("/auth");
+  res.redirect("/dashboard");
 });
 
 app.get("/dashboard", async (req, res) => {
   const user = req.session.user;
-  if (!user || !user.accessToken) return res.redirect("/auth");
+  if (!user?.accessToken) return res.redirect("/auth");
 
   let photoDataUrl = null;
-
   try {
-    const photoResponse = await axios.get(
+    const photoRes = await axios.get(
       "https://graph.microsoft.com/v1.0/me/photo/$value",
       {
         headers: { Authorization: `Bearer ${user.accessToken}` },
-        responseType: "arraybuffer",
+        responseType: "arraybuffer"
       }
     );
-
-    const photoBase64 = Buffer.from(photoResponse.data, "binary").toString(
-      "base64"
-    );
-    photoDataUrl = `data:image/jpeg;base64,${photoBase64}`;
-  } catch (err) {
-    console.warn("No profile photo found or error loading photo.");
-  }
-
+    const b64 = Buffer.from(photoRes.data, "binary").toString("base64");
+    photoDataUrl = `data:image/jpeg;base64,${b64}`;
+  } catch {}
   res.render("dashboard", { user, photoDataUrl });
 });
 
 app.get("/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.redirect("/");
+  req.session.destroy(() => res.redirect("/"));
+});
+
+// ——— Email Search / Conversation —————————————————————————————
+
+app.get("/search-emails", (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  res.render("search-email", {
+    user,
+    results: null,
+    query: "",
+    subject: ""
   });
 });
 
-app.get("/", (req, res) => {
+app.post("/search-emails", async (req, res) => {
   const user = req.session.user;
-  if (user && user.accessToken) {
-    res.redirect("/dashboard");
-  } else {
-    res.redirect("/auth");
+  if (!user?.accessToken) return res.redirect("/auth");
+
+  const targetEmail = (req.body.email || "").toLowerCase();
+  const subjectQuery = (req.body.subject || "").toLowerCase();
+  if (!targetEmail) return res.redirect("/search-emails");
+
+  // 1) Fetch first 50 messages across all folders
+  const initialRes = await axios.get(MESSAGES_URL, {
+    headers: { Authorization: `Bearer ${user.accessToken}` }
+  });
+  let msgs = initialRes.data.value;
+
+  // 2) Filter by contact & optional subject
+  msgs = msgs.filter(m =>
+    m.from?.emailAddress.address.toLowerCase() === targetEmail ||
+    m.toRecipients.some(r => r.emailAddress.address.toLowerCase() === targetEmail)
+  );
+  if (subjectQuery) {
+    msgs = msgs.filter(m =>
+      m.subject?.toLowerCase().includes(subjectQuery)
+    );
   }
+
+  // 3) Strip quotes and carry webLink
+  const results = msgs
+    .sort(
+      (a, b) =>
+        new Date(b.receivedDateTime || b.sentDateTime) -
+        new Date(a.receivedDateTime || a.sentDateTime)
+    )
+    .map(m => ({
+      id: m.id,
+      subject: m.subject,
+      from: m.from,
+      toRecipients: m.toRecipients,
+      receivedDateTime: m.receivedDateTime,
+      sentDateTime: m.sentDateTime,
+      webLink: m.webLink,
+      body: { content: stripQuotedText(m.body.content || "") }
+    }));
+
+  res.render("search-email", {
+    user,
+    results,
+    query: targetEmail,
+    subject: subjectQuery
+  });
 });
 
+app.post("/search-emails/expand", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
+
+  const targetEmail = (req.body.email || "").toLowerCase();
+  const subjectQuery = (req.body.subject || "").toLowerCase();
+
+  // 1) Page through *all* messages
+  let all = await fetchAllMessages(MESSAGES_URL, user.accessToken);
+
+  // 2) Same filtering
+  all = all.filter(m =>
+    m.from?.emailAddress.address.toLowerCase() === targetEmail ||
+    m.toRecipients.some(r => r.emailAddress.address.toLowerCase() === targetEmail)
+  );
+  if (subjectQuery) {
+    all = all.filter(m =>
+      m.subject?.toLowerCase().includes(subjectQuery)
+    );
+  }
+
+  // 3) Strip quotes + carry webLink
+  const results = all.map(m => ({
+    id: m.id,
+    subject: m.subject,
+    from: m.from,
+    toRecipients: m.toRecipients,
+    receivedDateTime: m.receivedDateTime,
+    sentDateTime: m.sentDateTime,
+    webLink: m.webLink,
+    body: { content: stripQuotedText(m.body.content || "") }
+  }));
+
+  res.json(results);
+});
+
+// ——— Other existing routes (files, shared libraries, send-email) ——————
+
+app.get("/files", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  const driveRes = await axios.get(
+    "https://graph.microsoft.com/v1.0/me/drive/root/children",
+    { headers: { Authorization: `Bearer ${user.accessToken}` } }
+  );
+  res.render("files", { user, files: driveRes.data.value });
+});
+
+// … your shared‐libraries, send‐email, etc. remain unchanged …
+
+// ——— Start the server ——————————————————————————————————————
+
 app.listen(port, () => {
-  console.log(`App listening at http://localhost:${port}`);
+  console.log(`App listening on port ${port}`);
 });
