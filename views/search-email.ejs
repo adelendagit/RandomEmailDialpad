@@ -41,9 +41,18 @@
       max-width: 65%;
       box-shadow: 0 1px 4px rgba(0,0,0,0.1);
       font-size: 0.95em;
+      word-wrap: break-word;         /* legacy */
       overflow-wrap: break-word;
       word-break: break-word;
       position: relative;
+    }
+    
+    .chat-body {
+      /* NEW: limit its height & scroll if needed */
+      max-height: 200px;             /* or whatever fits your design */
+      overflow-y: auto;
+      margin-top: 10px;              /* keep your spacing */
+      line-height: 1.4;              /* optional: more compact lines */
     }
 
     .chat-message.sent .chat-bubble {
