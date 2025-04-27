@@ -8,6 +8,13 @@ const cheerio = require("cheerio");
 const app = express();
 const port = 3000;
 
+// Near the top of server.js, define your “all-messages” URL once:
+const MESSAGES_URL =
+  'https://graph.microsoft.com/v1.0/me/messages' +
+  '?$top=50' +
+  '&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink' +
+  '&$orderby=receivedDateTime desc';
+
 function stripQuotedText(html) {
   const $ = cheerio.load(html);
 
@@ -341,16 +348,22 @@ app.post('/search-emails', express.urlencoded({ extended: true }), async (req, r
   if (!targetEmail) return res.redirect('/search-emails');
 
   try {
-    const [inboxResponse, sentResponse] = await Promise.all([
-      axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50`, {
-        headers: { Authorization: `Bearer ${user.accessToken}` }
-      }),
-      axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50`, {
-        headers: { Authorization: `Bearer ${user.accessToken}` }
-      })
-    ]);
+//     const [inboxResponse, sentResponse] = await Promise.all([
+//       axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/inbox/messages?$top=50`, {
+//         headers: { Authorization: `Bearer ${user.accessToken}` }
+//       }),
+//       axios.get(`https://graph.microsoft.com/v1.0/me/mailFolders/sentitems/messages?$top=50`, {
+//         headers: { Authorization: `Bearer ${user.accessToken}` }
+//       })
+//     ]);
 
-    const combinedMessages = [...inboxResponse.data.value, ...sentResponse.data.value];
+//     const combinedMessages = [...inboxResponse.data.value, ...sentResponse.data.value];
+    // 1) fetch first 50 across all folders
+    const initialRes = await axios.get(MESSAGES_URL, {
+      headers: { Authorization: `Bearer ${user.accessToken}` }
+    });
+    let msgs = initialRes.data.value;
+    let combinedMessages = msgs;
 
     let relevantMessages = combinedMessages.filter(msg =>
       msg.from?.emailAddress?.address?.toLowerCase() === targetEmail ||
