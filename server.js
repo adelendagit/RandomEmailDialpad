@@ -8,20 +8,15 @@ const cheerio = require("cheerio");
 const app = express();
 const port = process.env.PORT || 3000;
 
-// ——— Configuration —————————————————————————————————————————————
-
-// Base Graph endpoint pulling 50 newest messages (all folders), including webLink
+// Base Graph endpoint: first 50 messages, includes webLink
 const MESSAGES_URL =
   "https://graph.microsoft.com/v1.0/me/messages" +
   "?$top=50" +
   "&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink" +
   "&$orderby=receivedDateTime desc";
 
-// ——— Helpers ————————————————————————————————————————————————
+// ——— Helpers ——————————————————————————————————————————————
 
-/**
- * Strips quoted text, signatures, <hr> dividers, and cid: images
- */
 function stripQuotedText(html) {
   const $ = cheerio.load(html);
 
@@ -56,13 +51,9 @@ function stripQuotedText(html) {
   return $.html();
 }
 
-/**
- * Paginates through every page of a Graph query via @odata.nextLink
- */
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
-
   while (url) {
     const res = await axios.get(url, {
       headers: { Authorization: `Bearer ${accessToken}` }
@@ -72,7 +63,6 @@ async function fetchAllMessages(initialUrl, accessToken) {
     // safety cap
     if (all.length > 2000) break;
   }
-
   return all;
 }
 
@@ -84,14 +74,14 @@ app.use(
     secret: process.env.EXPRESS_SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false } // set to true if you have HTTPS
+    cookie: { secure: false }
   })
 );
 
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
-// ——— Authentication ————————————————————————————————————————————
+// ——— OAuth ——————————————————————————————————————————————
 
 app.get("/auth", (req, res) => {
   const params = qs.stringify({
@@ -99,8 +89,7 @@ app.get("/auth", (req, res) => {
     response_type: "code",
     redirect_uri: process.env.REDIRECT_URI,
     response_mode: "query",
-    scope:
-      "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+    scope: "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
     state: "12345"
   });
   res.redirect(
@@ -155,7 +144,6 @@ app.get("/", (req, res) => {
 app.get("/dashboard", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-
   let photoDataUrl = null;
   try {
     const photoRes = await axios.get(
@@ -175,50 +163,152 @@ app.get("/logout", (req, res) => {
   req.session.destroy(() => res.redirect("/"));
 });
 
-// ——— Email Search / Conversation —————————————————————————————
+// ——— File + Library Routes ——————————————————————————————————
+
+app.get("/files", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  const driveRes = await axios.get(
+    "https://graph.microsoft.com/v1.0/me/drive/root/children",
+    { headers: { Authorization: `Bearer ${user.accessToken}` } }
+  );
+  res.render("files", { user, files: driveRes.data.value });
+});
+
+app.get("/shared-libraries", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  const siteRes = await axios.get(
+    "https://graph.microsoft.com/v1.0/sites?search=*",
+    { headers: { Authorization: `Bearer ${user.accessToken}` } }
+  );
+  const sites = siteRes.data.value;
+  const siteData = await Promise.all(
+    sites.map(async site => {
+      const driveRes = await axios.get(
+        `https://graph.microsoft.com/v1.0/sites/${site.id}/drives`,
+        { headers: { Authorization: `Bearer ${req.session.user.accessToken}` } }
+      );
+      return {
+        name: site.name,
+        webUrl: site.webUrl,
+        id: site.id,
+        drives: driveRes.data.value
+      };
+    })
+  );
+  res.render("shared", { user, sites: siteData });
+});
+
+app.get(
+  "/shared-library/:siteId/:driveId",
+  async (req, res) => {
+    const { siteId, driveId } = req.params;
+    const user = req.session.user;
+    if (!user?.accessToken) return res.redirect("/auth");
+    const filesRes = await axios.get(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/children`,
+      { headers: { Authorization: `Bearer ${user.accessToken}` } }
+    );
+    res.render("library", {
+      user,
+      items: filesRes.data.value,
+      siteId,
+      driveId
+    });
+  }
+);
+
+app.get(
+  "/shared-library/:siteId/:driveId/folder/:itemId",
+  async (req, res) => {
+    const { siteId, driveId, itemId } = req.params;
+    const user = req.session.user;
+    if (!user?.accessToken) return res.redirect("/auth");
+    const folderRes = await axios.get(
+      `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/children`,
+      { headers: { Authorization: `Bearer ${user.accessToken}` } }
+    );
+    res.render("library", {
+      user,
+      items: folderRes.data.value,
+      siteId,
+      driveId
+    });
+  }
+);
+
+// ——— Send Email ——————————————————————————————————————————————
+
+app.get("/send-email", (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  res.render("send-email", { user });
+});
+
+app.post("/send-email", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  const { to, subject, body } = req.body;
+  await axios.post(
+    "https://graph.microsoft.com/v1.0/me/sendMail",
+    {
+      message: {
+        subject,
+        body: { contentType: "Text", content: body },
+        toRecipients: [{ emailAddress: { address: to } }]
+      }
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${user.accessToken}`,
+        "Content-Type": "application/json"
+      }
+    }
+  );
+  res.send('<p>Email sent! <a href="/send-email">Send another</a></p>');
+});
+
+// ——— Search / Conversation ——————————————————————————————————————
 
 app.get("/search-emails", (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-  res.render("search-email", {
-    user,
-    results: null,
-    query: "",
-    subject: ""
-  });
+  res.render("search-email", { user, results: null, query: "", subject: "" });
 });
 
 app.post("/search-emails", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-
   const targetEmail = (req.body.email || "").toLowerCase();
   const subjectQuery = (req.body.subject || "").toLowerCase();
   if (!targetEmail) return res.redirect("/search-emails");
 
-  // 1) Fetch first 50 messages across all folders
+  // 1) initial 50
   const initialRes = await axios.get(MESSAGES_URL, {
     headers: { Authorization: `Bearer ${user.accessToken}` }
   });
   let msgs = initialRes.data.value;
 
-  // 2) Filter by contact & optional subject
-  msgs = msgs.filter(m =>
-    m.from?.emailAddress.address.toLowerCase() === targetEmail ||
-    m.toRecipients.some(r => r.emailAddress.address.toLowerCase() === targetEmail)
-  );
+  // 2) safe filter
+  msgs = msgs.filter(m => {
+    const fromAddr = m.from?.emailAddress?.address?.toLowerCase() || "";
+    const toMatch = (m.toRecipients || []).some(r =>
+      r.emailAddress?.address?.toLowerCase() === targetEmail
+    );
+    return fromAddr === targetEmail || toMatch;
+  });
   if (subjectQuery) {
     msgs = msgs.filter(m =>
       m.subject?.toLowerCase().includes(subjectQuery)
     );
   }
 
-  // 3) Strip quotes and carry webLink
+  // 3) strip + map
   const results = msgs
-    .sort(
-      (a, b) =>
-        new Date(b.receivedDateTime || b.sentDateTime) -
-        new Date(a.receivedDateTime || a.sentDateTime)
+    .sort((a, b) =>
+      new Date(b.receivedDateTime || b.sentDateTime) -
+      new Date(a.receivedDateTime || a.sentDateTime)
     )
     .map(m => ({
       id: m.id,
@@ -242,25 +332,27 @@ app.post("/search-emails", async (req, res) => {
 app.post("/search-emails/expand", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
-
   const targetEmail = (req.body.email || "").toLowerCase();
   const subjectQuery = (req.body.subject || "").toLowerCase();
 
-  // 1) Page through *all* messages
+  // 1) page through all
   let all = await fetchAllMessages(MESSAGES_URL, user.accessToken);
 
-  // 2) Same filtering
-  all = all.filter(m =>
-    m.from?.emailAddress.address.toLowerCase() === targetEmail ||
-    m.toRecipients.some(r => r.emailAddress.address.toLowerCase() === targetEmail)
-  );
+  // 2) same safe filter
+  all = all.filter(m => {
+    const fromAddr = m.from?.emailAddress?.address?.toLowerCase() || "";
+    const toMatch = (m.toRecipients || []).some(r =>
+      r.emailAddress?.address?.toLowerCase() === targetEmail
+    );
+    return fromAddr === targetEmail || toMatch;
+  });
   if (subjectQuery) {
     all = all.filter(m =>
       m.subject?.toLowerCase().includes(subjectQuery)
     );
   }
 
-  // 3) Strip quotes + carry webLink
+  // 3) strip + map
   const results = all.map(m => ({
     id: m.id,
     subject: m.subject,
@@ -275,21 +367,7 @@ app.post("/search-emails/expand", async (req, res) => {
   res.json(results);
 });
 
-// ——— Other existing routes (files, shared libraries, send-email) ——————
-
-app.get("/files", async (req, res) => {
-  const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
-  const driveRes = await axios.get(
-    "https://graph.microsoft.com/v1.0/me/drive/root/children",
-    { headers: { Authorization: `Bearer ${user.accessToken}` } }
-  );
-  res.render("files", { user, files: driveRes.data.value });
-});
-
-// … your shared‐libraries, send‐email, etc. remain unchanged …
-
-// ——— Start the server ——————————————————————————————————————
+// ——— Start ——————————————————————————————————————————————
 
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);
