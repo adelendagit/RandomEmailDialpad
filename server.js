@@ -423,14 +423,15 @@ app.get("/search-emails-server-search", async (req, res) => {
     // require subject contains your term
     searchClause += ` AND subject:${subjectQuery}`;
   }
+  searchClause = "test";
 
   // Assemble the URL
   const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
   const params = [
-    `$search=${encodeURIComponent(searchClause)}`,
-    `$count=true`,                     // required when you use $search
-    `$top=50`,
-    `$orderby=receivedDateTime desc`
+    `$search=${encodeURIComponent(searchClause)}`//,
+    //`$count=true`,                     // required when you use $search
+    //`$top=50`//,
+    //`$orderby=receivedDateTime`
   ];
   const url = `${baseUrl}?${params.join("&")}`;
   console.log("Graph $search URL:", url);
