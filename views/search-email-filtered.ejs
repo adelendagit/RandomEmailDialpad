@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Search Emails</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: sans-serif;
+      max-width: 800px;
+      margin: 2em auto;
+      padding: 0 1em;
+      background: #f9f9f9;
+    }
+
+    input, button {
+      padding: 10px;
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    .chat-thread {
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      padding: 20px 0;
+    }
+
+    .chat-message {
+      display: flex;
+      width: 100%;
+    }
+
+    .chat-message.sent { justify-content: flex-end; }
+    .chat-message.received { justify-content: flex-start; }
+
+    .chat-bubble {
+      background: #f1f1f1;
+      padding: 12px 16px;
+      border-radius: 18px;
+      max-width: 65%;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      font-size: 0.95em;
+      overflow-wrap: anywhere;
+      word-wrap: break-word;
+      word-break: break-all;
+      position: relative;
+    }
+    
+    .chat-body {
+      max-height: 200px;
+      overflow-y: auto;
+      margin-top: 10px;
+      line-height: 1.4;
+    }
+
+    .chat-message.sent .chat-bubble {
+      background: #edf4fc;
+      color: #111;
+      border-bottom-right-radius: 4px;
+      border-bottom-left-radius: 18px;
+    }
+
+    .chat-message.received .chat-bubble {
+      background: #f1f1f1;
+      border-bottom-left-radius: 4px;
+      border-bottom-right-radius: 18px;
+    }
+    
+    .open-link {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      font-size: 1.2em;
+      text-decoration: none;
+      color: inherit;
+      opacity: 0.6;
+    }
+    .open-link:hover { opacity: 1; }
+
+    .chat-meta {
+      font-size: 0.8em;
+      color: #666;
+      margin-bottom: 6px;
+    }
+
+    h1, h2 { text-align: center; }
+    form    { margin-bottom: 30px; }
+    #loading { text-align: center; font-style: italic; margin-top: 10px; display: none; }
+  </style>
+</head>
+<body>
+  <h1>Search Emails Involving a Contact</h1>
+  <form method="GET" action="/search-emails-filtered">
+    <input
+      type="email"
+      name="email"
+      placeholder="someone@example.com"
+      required
+      value="<%= query %>" />
+
+    <input
+      type="text"
+      name="subject"
+      placeholder="(optional) Subject contains..."
+      value="<%= subject %>" />
+
+    <button type="submit">Search</button>
+  </form>
+
+  <h2>Conversation with <%= query %></h2>
+  <p id="no-recent">
+    <% if (!results || results.length === 0) { %>
+      No recent emails found involving "<%= query %>"<% if (subject) { %> with subject containing "<%= subject %>"<% } %>.
+    <% } %>
+  </p>
+
+  <div id="loading">Loading older messages…</div>
+
+  <div class="chat-thread">
+    <% if (results && results.length > 0) { %>
+      <% results.forEach(msg => {
+        const fromAddr = msg.from?.emailAddress?.address.toLowerCase() || "";
+        const isSent    = fromAddr === user.email.toLowerCase();
+        const side      = isSent ? 'sent' : 'received';
+        const date      = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
+      %>
+        <div class="chat-message <%= side %>" data-id="<%= msg.id %>">
+          <div class="chat-bubble">
+            <a href="<%= msg.webLink %>"
+               target="_blank"
+               class="open-link"
+               title="Open in Outlook">
+              ✉️
+            </a>
+
+            <div class="chat-meta">
+              <small><%= date %></small>
+            </div>
+            <strong><%= msg.subject || 'No subject' %></strong><br/>
+            <small>From: <%= msg.from?.emailAddress?.address %></small><br/>
+            <small>To:   <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %></small>
+            <div class="chat-body" style="margin-top:10px;">
+              <%- msg.body?.content || '<em>(no message body)</em>' %>
+            </div>
+          </div>
+        </div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const thread      = document.querySelector('.chat-thread');
+    const noRecentEl  = document.getElementById('no-recent');
+    const loadingEl   = document.getElementById('loading');
+    const existing    = new Set(
+      Array.from(thread.querySelectorAll('.chat-message'))
+           .map(el => el.getAttribute('data-id'))
+    );
+    const initialCount = <%= (results && results.length) || 0 %>;
+
+    // timer for loading
+    let timerId;
+    if (initialCount === 0) {
+      loadingEl.style.display = 'block';
+      const start = Date.now();
+      timerId = setInterval(() => {
+        const sec = Math.floor((Date.now() - start) / 1000);
+        loadingEl.textContent = `Loading older messages… (${sec}s elapsed)`;
+      }, 1000);
+    }
+
+    const url = new URL('/search-emails/expand', window.location.origin);
+    url.searchParams.set('email',   '<%= query %>');
+    url.searchParams.set('subject', '<%= subject %>');
+
+    fetch(url, { method: 'GET' })
+      .then(r => r.json())
+      .then(extra => {
+        if (timerId) clearInterval(timerId);
+        loadingEl.style.display = 'none';
+        if (extra.length > 0) {
+          if (noRecentEl) noRecentEl.style.display = 'none';
+        } else if (initialCount === 0) {
+          if (noRecentEl) {
+            noRecentEl.textContent = `No emails found at all involving "<%= query %>"` +
+              `<% if (subject) { %> with subject containing "<%= subject %>"<% } %>. `;
+          }
+        }
+
+        extra.forEach(msg => {
+          if (existing.has(msg.id)) return;
+          const fromAddr = (msg.from?.emailAddress.address || '').toLowerCase();
+          const isSent   = fromAddr === '<%= user.email.toLowerCase() %>';
+          const side     = isSent ? 'sent' : 'received';
+          const date     = new Date(msg.receivedDateTime || msg.sentDateTime)
+                              .toLocaleString();
+
+          const wrapper = document.createElement('div');
+          wrapper.className = `chat-message ${side}`;
+          wrapper.setAttribute('data-id', msg.id);
+
+          const bubble = document.createElement('div');
+          bubble.className = 'chat-bubble';
+
+          const envelope = document.createElement('a');
+          envelope.className = 'open-link';
+          envelope.href        = msg.webLink;
+          envelope.target      = '_blank';
+          envelope.title       = 'Open in Outlook';
+          envelope.textContent = '✉️';
+          bubble.appendChild(envelope);
+
+          const meta = document.createElement('div');
+          meta.className = 'chat-meta';
+          meta.innerHTML = `<small>${date}</small>`;
+          bubble.appendChild(meta);
+
+          const subj = document.createElement('strong');
+          subj.textContent = msg.subject || 'No subject';
+          bubble.appendChild(subj);
+          bubble.appendChild(document.createElement('br'));
+
+          const from = document.createElement('small');
+          from.textContent = `From: ${msg.from.emailAddress.address}`;
+          bubble.appendChild(from);
+          bubble.appendChild(document.createElement('br'));
+
+          const to = document.createElement('small');
+          to.textContent = `To:   ${msg.toRecipients.map(r=>r.emailAddress.address).join(', ')}`;
+          bubble.appendChild(to);
+
+          const bodyDiv = document.createElement('div');
+          bodyDiv.className    = 'chat-body';
+          bodyDiv.style.margin = '10px 0 0';
+          bodyDiv.innerHTML    = msg.body.content;
+          bubble.appendChild(bodyDiv);
+
+          wrapper.appendChild(bubble);
+          thread.appendChild(wrapper);
+        });
+      })
+      .catch(err => {
+        if (timerId) clearInterval(timerId);
+        loadingEl.style.display = 'none';
+        console.error('Expand failed:', err);
+      });
+  });
+  </script>
+
+</body>
+</html>

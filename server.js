@@ -51,20 +51,37 @@ function stripQuotedText(html) {
   return $.html();
 }
 
+// async function fetchAllMessages(initialUrl, accessToken) {
+//   let all = [];
+//   let url = initialUrl;
+//   while (url) {
+//     const res = await axios.get(url, {
+//       headers: { Authorization: `Bearer ${accessToken}` }
+//     });
+//     all = all.concat(res.data.value);
+//     url = res.data["@odata.nextLink"] || null;
+//     // safety cap
+//     if (all.length > 4000) break;
+//   }
+//   return all;
+// }
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
+  let page = 0;
   while (url) {
-    const res = await axios.get(url, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    page += 1;
+    console.log(`Fetching page ${page}: ${url}`);
+    const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     all = all.concat(res.data.value);
     url = res.data["@odata.nextLink"] || null;
     // safety cap
-    if (all.length > 8000) break;
+    if (all.length > 4000) break;
   }
+  console.log(`Fetched a total of ${all.length} messages.`);
   return all;
 }
+
 
 // ——— App Setup ——————————————————————————————————————————————
 
@@ -380,6 +397,72 @@ app.get("/search-emails/expand", async (req, res) => {
 
   res.json(results);
 });
+
+// ——— Server-side filtered search ——————————————————————————————
+app.get("/search-emails-filtered", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+
+  const targetEmail  = (req.query.email   || "").toLowerCase();
+  const subjectQuery = (req.query.subject || "").toLowerCase();
+
+  if (!targetEmail) {
+    // no email ⇒ just show empty form
+    return res.render("search-email-filtered", {
+      user,
+      results: null,
+      query: "",
+      subject: ""
+    });
+  }
+
+  // Build an OData $filter:
+  //   (from eq X OR toRecipients any … eq X)
+  //   AND [contains(subject, 'Y')]
+  let filter = 
+    `(from/emailAddress/address eq '${targetEmail}' or ` +
+    `toRecipients/any(r: r/emailAddress/address eq '${targetEmail}'))`;
+
+  if (subjectQuery) {
+    // Graph supports contains()
+    filter += ` and contains(subject,'${subjectQuery}')`;
+  }
+
+  const filteredUrl =
+    `https://graph.microsoft.com/v1.0/me/messages` +
+    `?$top=50` +
+    `&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink` +
+    `&$orderby=receivedDateTime desc` +
+    `&$filter=${encodeURIComponent(filter)}`;
+
+  // Use the same paging helper, but now each page is pre-filtered
+  const msgs = await fetchAllMessages(filteredUrl, user.accessToken);
+
+  // strip quoted text & map as before
+  const results = msgs
+    .map(m => ({
+      id:               m.id,
+      subject:          m.subject,
+      from:             m.from,
+      toRecipients:     m.toRecipients,
+      receivedDateTime: m.receivedDateTime,
+      sentDateTime:     m.sentDateTime,
+      webLink:          m.webLink,
+      body: { content:  stripQuotedText(m.body.content || "") }
+    }))
+    .sort((a, b) =>
+      new Date(b.receivedDateTime || b.sentDateTime) -
+      new Date(a.receivedDateTime || a.sentDateTime)
+    );
+
+  res.render("search-email-filtered", {
+    user,
+    results,
+    query:   targetEmail,
+    subject: subjectQuery
+  });
+});
+
 
 // ——— Start ——————————————————————————————————————————————
 
