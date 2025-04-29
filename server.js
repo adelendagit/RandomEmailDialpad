@@ -11,7 +11,7 @@ const port = process.env.PORT || 3000;
 // Base Graph endpoint: first 50 messages, includes webLink
 const MESSAGES_URL =
   "https://graph.microsoft.com/v1.0/me/messages" +
-  "?$top=50" +
+  "?$top=500" +
   "&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink" +
   "&$orderby=receivedDateTime desc";
 
@@ -340,7 +340,8 @@ app.get("/search-emails", async (req, res) => {
   });
 });
 
-app.post("/search-emails/expand", async (req, res) => {
+//app.post("/search-emails/expand", async (req, res) => {
+app.get("/search-emails/expand", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
   //const targetEmail = (req.body.email || "").toLowerCase();

@@ -168,14 +168,20 @@ document.addEventListener('DOMContentLoaded', () => {
          .map(el => el.getAttribute('data-id'))
   );
 
-  fetch('/search-emails/expand', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      email:   '<%= query %>',
-      subject: '<%= subject %>'
-    })
-  })
+  // fetch('/search-emails/expand', {
+  //   method: 'POST',
+  //   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+  //   body: new URLSearchParams({
+  //     email:   '<%= query %>',
+  //     subject: '<%= subject %>'
+  //   })
+  // })
+  // build the URL with the same query you used for the main GET
+  const url = new URL('/search-emails/expand', window.location.origin);
+  url.searchParams.set('email',   '<%= query %>');
+  url.searchParams.set('subject', '<%= subject %>');
+
+  fetch(url, { method: 'GET' })
   .then(r => r.json())
   .then(extra => {
     const thread = document.querySelector('.chat-thread');
