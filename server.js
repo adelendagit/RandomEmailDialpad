@@ -61,7 +61,7 @@ async function fetchAllMessages(initialUrl, accessToken) {
     all = all.concat(res.data.value);
     url = res.data["@odata.nextLink"] || null;
     // safety cap
-    if (all.length > 2000) break;
+    if (all.length > 8000) break;
   }
   return all;
 }
