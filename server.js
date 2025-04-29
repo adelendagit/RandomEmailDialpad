@@ -281,8 +281,8 @@ app.post("/send-email", async (req, res) => {
 app.get("/search-emails", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-  const targetEmail = (req?.body?.email || "").toLowerCase();
-  const subjectQuery = (req?.body?.subject || "").toLowerCase();
+  const targetEmail = (req?.query?.email || "").toLowerCase();
+  const subjectQuery = (req?.query?.subject || "").toLowerCase();
   //if (!targetEmail) return res.redirect("/search-emails");
   // render empty form if no email provided
   if (!targetEmail) {
@@ -343,8 +343,10 @@ app.get("/search-emails", async (req, res) => {
 app.post("/search-emails/expand", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
-  const targetEmail = (req.body.email || "").toLowerCase();
-  const subjectQuery = (req.body.subject || "").toLowerCase();
+  //const targetEmail = (req.body.email || "").toLowerCase();
+  //const subjectQuery = (req.body.subject || "").toLowerCase();
+  const targetEmail = (req?.query?.email || "").toLowerCase();
+  const subjectQuery = (req?.query?.subject || "").toLowerCase();
 
   // 1) page through all
   let all = await fetchAllMessages(MESSAGES_URL, user.accessToken);
