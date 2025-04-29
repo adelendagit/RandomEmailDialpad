@@ -11,7 +11,7 @@ const port = process.env.PORT || 3000;
 // Base Graph endpoint: first 50 messages, includes webLink
 const MESSAGES_URL =
   "https://graph.microsoft.com/v1.0/me/messages" +
-  "?$top=50" +
+  "?$top=60" +
   "&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink" +
   "&$orderby=receivedDateTime desc";
 
