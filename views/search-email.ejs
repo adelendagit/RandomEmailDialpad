@@ -42,18 +42,16 @@
       box-shadow: 0 1px 4px rgba(0,0,0,0.1);
       font-size: 0.95em;
       overflow-wrap: anywhere;
-      word-wrap: break-word;         /* legacy */
-      word-break: break-word;
+      word-wrap: break-word;
       word-break: break-all;
       position: relative;
     }
     
     .chat-body {
-      /* NEW: limit its height & scroll if needed */
-      max-height: 200px;             /* or whatever fits your design */
+      max-height: 200px;
       overflow-y: auto;
-      margin-top: 10px;              /* keep your spacing */
-      line-height: 1.4;              /* optional: more compact lines */
+      margin-top: 10px;
+      line-height: 1.4;
     }
 
     .chat-message.sent .chat-bubble {
@@ -69,7 +67,6 @@
       border-bottom-right-radius: 18px;
     }
     
-    /* the little envelope “button” */
     .open-link {
       position: absolute;
       top: 8px;
@@ -79,20 +76,14 @@
       color: inherit;
       opacity: 0.6;
     }
-    .open-link:hover {
-      opacity: 1;
-    }
+    .open-link:hover { opacity: 1; }
 
-    /* NEW: make the link fill the bubble without altering styling */
     .bubble-link {
       display: block;
       color: inherit;
       text-decoration: none;
     }
-    .bubble-link:hover {
-      /* optional hover effect */
-      opacity: 0.9;
-    }
+    .bubble-link:hover { opacity: 0.9; }
 
     .chat-meta {
       font-size: 0.8em;
@@ -123,133 +114,127 @@
     <button type="submit">Search</button>
   </form>
 
-  <% if (results) { %>
-    <% if (results.length === 0) { %>
-      <p>No recent emails found involving "<%= query %>".</p>
-    <% } else { %>
-      <h2>Conversation with <%= query %></h2>
-      <div class="chat-thread">
-        <% results.forEach(msg => {
-          const fromAddr = msg.from?.emailAddress?.address.toLowerCase() || "";
-          const isSent    = fromAddr === user.email.toLowerCase();
-          const side      = isSent ? 'sent' : 'received';
-          const date      = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
-        %>
-          <div class="chat-message <%= side %>" data-id="<%= msg.id %>">
-            <div class="chat-bubble">
-              <!-- the envelope icon -->
-              <a href="<%= msg.webLink %>"
-                 target="_blank"
-                 class="open-link"
-                 title="Open in Outlook">
-                ✉️
-              </a>
+  <h2>Conversation with <%= query %></h2>
+  <p id="no-recent">
+    <% if (!results || results.length === 0) { %>
+      No recent emails found involving "<%= query %>".<br/>
+      Loading older messages…
+    <% } %>
+  </p>
 
-              <div class="chat-meta">
-                <small><%= date %></small>
-              </div>
-              <strong><%= msg.subject || 'No subject' %></strong><br/>
-              <small>From: <%= msg.from?.emailAddress?.address %></small><br/>
-              <small>To:   <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %></small>
-              <div class="chat-body" style="margin-top:10px;">
-                <%- msg.body?.content || '<em>(no message body)</em>' %>
-              </div>
+  <div class="chat-thread">
+    <% if (results && results.length > 0) { %>
+      <% results.forEach(msg => {
+        const fromAddr = msg.from?.emailAddress?.address.toLowerCase() || "";
+        const isSent    = fromAddr === user.email.toLowerCase();
+        const side      = isSent ? 'sent' : 'received';
+        const date      = new Date(msg.receivedDateTime || msg.sentDateTime).toLocaleString();
+      %>
+        <div class="chat-message <%= side %>" data-id="<%= msg.id %>">
+          <div class="chat-bubble">
+            <a href="<%= msg.webLink %>"
+               target="_blank"
+               class="open-link"
+               title="Open in Outlook">
+              ✉️
+            </a>
+
+            <div class="chat-meta">
+              <small><%= date %></small>
+            </div>
+            <strong><%= msg.subject || 'No subject' %></strong><br/>
+            <small>From: <%= msg.from?.emailAddress?.address %></small><br/>
+            <small>To:   <%= msg.toRecipients?.map(r => r.emailAddress?.address).join(', ') %></small>
+            <div class="chat-body" style="margin-top:10px;">
+              <%- msg.body?.content || '<em>(no message body)</em>' %>
             </div>
           </div>
-        <% }) %>
-      </div>
+        </div>
+      <% }) %>
     <% } %>
-  <% } %>
+  </div>
 
-<script>
-document.addEventListener('DOMContentLoaded', () => {
-  const existing = new Set(
-    Array.from(document.querySelectorAll('.chat-message'))
-         .map(el => el.getAttribute('data-id'))
-  );
+  <script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const thread      = document.querySelector('.chat-thread');
+    const noRecentEl  = document.getElementById('no-recent');
+    const existing    = new Set(
+      Array.from(thread.querySelectorAll('.chat-message'))
+           .map(el => el.getAttribute('data-id'))
+    );
+    const initialCount = <%= (results && results.length) || 0 %>;
 
-  // fetch('/search-emails/expand', {
-  //   method: 'POST',
-  //   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-  //   body: new URLSearchParams({
-  //     email:   '<%= query %>',
-  //     subject: '<%= subject %>'
-  //   })
-  // })
-  // build the URL with the same query you used for the main GET
-  const url = new URL('/search-emails/expand', window.location.origin);
-  url.searchParams.set('email',   '<%= query %>');
-  url.searchParams.set('subject', '<%= subject %>');
+    const url = new URL('/search-emails/expand', window.location.origin);
+    url.searchParams.set('email',   '<%= query %>');
+    url.searchParams.set('subject', '<%= subject %>');
 
-  fetch(url, { method: 'GET' })
-  .then(r => r.json())
-  .then(extra => {
-    const thread = document.querySelector('.chat-thread');
-    extra.forEach(msg => {
-      if (existing.has(msg.id)) return;
+    fetch(url, { method: 'GET' })
+      .then(r => r.json())
+      .then(extra => {
+        if (extra.length > 0) {
+          if (noRecentEl) noRecentEl.style.display = 'none';
+        } else if (initialCount === 0) {
+          if (noRecentEl) {
+            noRecentEl.textContent = `No emails found at all involving "<%= query %>".`;
+          }
+        }
 
-      // determine sent vs received
-      const fromAddr = (msg.from?.emailAddress.address || '').toLowerCase();
-      const isSent   = fromAddr === '<%= user.email.toLowerCase() %>';
-      const side     = isSent ? 'sent' : 'received';
-      const date     = new Date(msg.receivedDateTime || msg.sentDateTime)
-                          .toLocaleString();
+        extra.forEach(msg => {
+          if (existing.has(msg.id)) return;
 
-      // wrapper
-      const wrapper = document.createElement('div');
-      wrapper.className = `chat-message ${side}`;
-      wrapper.setAttribute('data-id', msg.id);
+          const fromAddr = (msg.from?.emailAddress.address || '').toLowerCase();
+          const isSent   = fromAddr === '<%= user.email.toLowerCase() %>';
+          const side     = isSent ? 'sent' : 'received';
+          const date     = new Date(msg.receivedDateTime || msg.sentDateTime)
+                              .toLocaleString();
 
-      // bubble
-      const bubble = document.createElement('div');
-      bubble.className = 'chat-bubble';
+          const wrapper = document.createElement('div');
+          wrapper.className = `chat-message ${side}`;
+          wrapper.setAttribute('data-id', msg.id);
 
-      // envelope icon link
-      const envelope = document.createElement('a');
-      envelope.className = 'open-link';
-      envelope.href        = msg.webLink;
-      envelope.target      = '_blank';
-      envelope.title       = 'Open in Outlook';
-      envelope.textContent = '✉️';
-      bubble.appendChild(envelope);
+          const bubble = document.createElement('div');
+          bubble.className = 'chat-bubble';
 
-      // meta
-      const meta = document.createElement('div');
-      meta.className = 'chat-meta';
-      meta.innerHTML = `<small>${date}</small>`;
-      bubble.appendChild(meta);
+          const envelope = document.createElement('a');
+          envelope.className = 'open-link';
+          envelope.href        = msg.webLink;
+          envelope.target      = '_blank';
+          envelope.title       = 'Open in Outlook';
+          envelope.textContent = '✉️';
+          bubble.appendChild(envelope);
 
-      // subject
-      const subj = document.createElement('strong');
-      subj.textContent = msg.subject || 'No subject';
-      bubble.appendChild(subj);
-      bubble.appendChild(document.createElement('br'));
+          const meta = document.createElement('div');
+          meta.className = 'chat-meta';
+          meta.innerHTML = `<small>${date}</small>`;
+          bubble.appendChild(meta);
 
-      // from
-      const from = document.createElement('small');
-      from.textContent = `From: ${msg.from.emailAddress.address}`;
-      bubble.appendChild(from);
-      bubble.appendChild(document.createElement('br'));
+          const subj = document.createElement('strong');
+          subj.textContent = msg.subject || 'No subject';
+          bubble.appendChild(subj);
+          bubble.appendChild(document.createElement('br'));
 
-      // to
-      const to = document.createElement('small');
-      to.textContent = `To:   ${msg.toRecipients.map(r=>r.emailAddress.address).join(', ')}`;
-      bubble.appendChild(to);
+          const from = document.createElement('small');
+          from.textContent = `From: ${msg.from.emailAddress.address}`;
+          bubble.appendChild(from);
+          bubble.appendChild(document.createElement('br'));
 
-      // body
-      const bodyDiv = document.createElement('div');
-      bodyDiv.className    = 'chat-body';
-      bodyDiv.style.margin = '10px 0 0';
-      bodyDiv.innerHTML    = msg.body.content;
-      bubble.appendChild(bodyDiv);
+          const to = document.createElement('small');
+          to.textContent = `To:   ${msg.toRecipients.map(r=>r.emailAddress.address).join(', ')}`;
+          bubble.appendChild(to);
 
-      wrapper.appendChild(bubble);
-      thread.appendChild(wrapper);
-    });
-  })
-  .catch(err => console.error('Expand failed:', err));
-});
-</script>
+          const bodyDiv = document.createElement('div');
+          bodyDiv.className    = 'chat-body';
+          bodyDiv.style.margin = '10px 0 0';
+          bodyDiv.innerHTML    = msg.body.content;
+          bubble.appendChild(bodyDiv);
+
+          wrapper.appendChild(bubble);
+          thread.appendChild(wrapper);
+        });
+      })
+      .catch(err => console.error('Expand failed:', err));
+  });
+  </script>
 
 </body>
 </html>
