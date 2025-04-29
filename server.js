@@ -398,64 +398,71 @@ app.get("/search-emails/expand", async (req, res) => {
   res.json(results);
 });
 
-// ——— Server-side filtered search ——————————————————————————————
-app.get("/search-emails-filtered", async (req, res) => {
+// ——— Server‐side search via $search —————————————————————————————
+app.get("/search-emails-server-search", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
 
-  const targetEmail  = (req.query.email   || "").toLowerCase();
-  const subjectQuery = (req.query.subject || "").toLowerCase();
+  const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+  const subjectQuery = (req.query.subject || "").trim().toLowerCase();
 
+  // no email? render empty form
   if (!targetEmail) {
-    // no email ⇒ just show empty form
-    return res.render("search-email-filtered", {
+    return res.render("search-email-server-search", {
       user,
       results: null,
-      query: "",
+      query:   "",
       subject: ""
     });
   }
 
-  // Build an OData $filter:
-  //   (from eq X OR toRecipients any … eq X)
-  //   AND [contains(subject, 'Y')]
-  let filter = 
-    `(from/emailAddress/address eq '${targetEmail}' or ` +
-    `toRecipients/any(r: r/emailAddress/address eq '${targetEmail}'))`;
-
+  // Build the $search clause:
+  //   look in from: OR to: (Graph supports both), plus optional subject:
+  let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
   if (subjectQuery) {
-    // Graph supports contains()
-    filter += ` and contains(subject,'${subjectQuery}')`;
+    // require subject contains your term
+    searchClause += ` AND subject:${subjectQuery}`;
   }
 
-  const filteredUrl =
-    `https://graph.microsoft.com/v1.0/me/messages` +
-    `?$top=50` +
-    `&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink` +
-    `&$orderby=receivedDateTime desc` +
-    `&$filter=${encodeURIComponent(filter)}`;
+  // Assemble the URL
+  const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
+  const params = [
+    `$search=${encodeURIComponent(searchClause)}`,
+    `$count=true`,                     // required when you use $search
+    `$top=50`,
+    `$orderby=receivedDateTime desc`
+  ];
+  const url = `${baseUrl}?${params.join("&")}`;
+  console.log("Graph $search URL:", url);
 
-  // Use the same paging helper, but now each page is pre-filtered
-  const msgs = await fetchAllMessages(filteredUrl, user.accessToken);
+  // Fire off the request with the required header
+  const resp = await axios.get(url, {
+    headers: {
+      Authorization:    `Bearer ${user.accessToken}`,
+      ConsistencyLevel: "eventual"    // mandatory for $search
+    }
+  });
 
-  // strip quoted text & map as before
-  const results = msgs
+  // Grab the first page (you can still follow @odata.nextLink if you want more)
+  const messages = resp.data.value;
+
+  // Strip quoted text, map & sort
+  const results = messages
     .map(m => ({
       id:               m.id,
       subject:          m.subject,
       from:             m.from,
       toRecipients:     m.toRecipients,
       receivedDateTime: m.receivedDateTime,
-      sentDateTime:     m.sentDateTime,
       webLink:          m.webLink,
       body: { content:  stripQuotedText(m.body.content || "") }
     }))
     .sort((a, b) =>
-      new Date(b.receivedDateTime || b.sentDateTime) -
-      new Date(a.receivedDateTime || a.sentDateTime)
+      new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
     );
 
-  res.render("search-email-filtered", {
+  // Render with a copy of your template pointed at this route
+  res.render("search-email-server-search", {
     user,
     results,
     query:   targetEmail,
