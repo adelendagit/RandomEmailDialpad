@@ -399,7 +399,7 @@ app.get("/search-emails/expand", async (req, res) => {
 });
 
 // ——— Server‐side search via $search —————————————————————————————
-app.get("/search-emails-server-search", async (req, res) => {
+app.get("/search-email-server-search", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
 
@@ -423,13 +423,13 @@ app.get("/search-emails-server-search", async (req, res) => {
     // require subject contains your term
     searchClause += ` AND subject:${subjectQuery}`;
   }
-  searchClause="test";
+  searchClause = '"' + searchClause + '"';
   // Assemble the URL
   const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
   const params = [
-    `$search=${encodeURIComponent(searchClause)}`//,
-    //`$count=true`,                     // required when you use $search
-    //`$top=50`//,
+    `$search=${encodeURIComponent(searchClause)}`,
+    `$count=true`,                     
+    `$top=50`//,
     //`$orderby=receivedDateTime`
   ];
   const url = `${baseUrl}?${params.join("&")}`;
