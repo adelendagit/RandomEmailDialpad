@@ -271,28 +271,18 @@ app.post("/send-email", async (req, res) => {
 
 // ——— Search / Conversation ——————————————————————————————————————
 
-// app.get("/search-emails", (req, res) => {
-//   const user = req.session.user;
-//   if (!user?.accessToken) return res.redirect("/auth");
-//   res.render("search-email", { user, results: null, query: "", subject: "" });
-// });
-
-//app.post("/search-emails", async (req, res) => {
-app.get("/search-emails", async (req, res) => {
+app.get("/search-emails", (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-  const targetEmail = (req?.body?.email || "").toLowerCase();
-  const subjectQuery = (req?.body?.subject || "").toLowerCase();
-  //if (!targetEmail) return res.redirect("/search-emails");
-  // render empty form if no email provided
-  if (!targetEmail) {
-    return res.render("search-email", {
-      user,
-      results: null,
-      query: "",
-      subject: ""
-    });
-  }
+  res.render("search-email", { user, results: null, query: "", subject: "" });
+});
+
+app.post("/search-emails", async (req, res) => {
+  const user = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+  const targetEmail = (req.body.email || "").toLowerCase();
+  const subjectQuery = (req.body.subject || "").toLowerCase();
+  if (!targetEmail) return res.redirect("/search-emails");
 
   // 1) initial 50
   const initialRes = await axios.get(MESSAGES_URL, {
@@ -334,7 +324,6 @@ app.get("/search-emails", async (req, res) => {
   res.render("search-email", {
     user,
     results,
-    // echo back into form fields
     query: targetEmail,
     subject: subjectQuery
   });
