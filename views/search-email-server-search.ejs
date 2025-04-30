@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <title>Server-Side Search Emails</title>
+  <!-- Moment.js for date formatting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
   <style>
     /* Base reset and typography */
     *, *::before, *::after { box-sizing: border-box; }
@@ -18,7 +20,6 @@
       color: #333;
     }
     h1 { font-size: 1.4rem; margin-bottom: 0.5em; text-align: center; }
-    h2 { font-size: 1rem; margin-top: 1em; text-align: center; }
 
     /* Form and accordion */
     details { margin-bottom: 1em; }
@@ -31,10 +32,7 @@
       font-size: 1rem;
       user-select: none;
     }
-    details[open] summary {
-      border-bottom-left-radius: 0;
-      border-bottom-right-radius: 0;
-    }
+    details[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
     details form {
       border: 1px solid #0079bf;
       padding: 10px;
@@ -59,12 +57,7 @@
     button:hover { background: #005a8c; }
 
     /* Chat thread styling */
-    .chat-thread {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      padding: 15px 0;
-    }
+    .chat-thread { display: flex; flex-direction: column; gap: 10px; padding: 15px 0; }
     .chat-message { display: flex; width: 100%; }
     .chat-message.sent { justify-content: flex-end; }
     .chat-message.received { justify-content: flex-start; }
@@ -79,7 +72,6 @@
     }
     .chat-message.sent .chat-bubble {
       background: #e1f0fb;
-      color: #111;
       border-bottom-right-radius: 4px;
       border-bottom-left-radius: 12px;
     }
@@ -92,13 +84,9 @@
       max-height: 150px;
       overflow-y: auto;
       margin-top: 6px;
-      font-size: 0.8rem; /* fixed font size */
+      font-size: 0.8rem;
     }
-    .chat-meta {
-      font-size: 0.75rem;
-      color: #666;
-      margin-bottom: 4px;
-    }
+    .chat-meta { font-size: 0.75rem; color: #666; margin-bottom: 4px; }
     .open-link {
       position: absolute;
       top: 6px;
@@ -129,13 +117,11 @@
         <% results.forEach(msg => {
              const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
              const isSent   = fromAddr === user.email.toLowerCase();
-             const side     = isSent ? 'sent' : 'received';
-             const date     = new Date(msg.receivedDateTime).toLocaleString();
         %>
-          <div class="chat-message <%= side %>">
+          <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
             <div class="chat-bubble">
               <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
-              <div class="chat-meta"><small><%= date %></small></div>
+              <div class="chat-meta"><small data-time="<%= msg.receivedDateTime %>"></small></div>
               <strong><%= msg.subject || 'No subject' %></strong><br>
               <small>From: <%= msg.from?.emailAddress?.address %></small><br>
               <small>To: <%= msg.toRecipients?.map(r=>r.emailAddress.address).join(', ') %></small>
@@ -144,6 +130,14 @@
           </div>
         <% }) %>
       </div>
+      <script>
+        document.addEventListener('DOMContentLoaded', function() {
+          document.querySelectorAll('.chat-meta small[data-time]').forEach(function(el) {
+            // Show relative time like "5 minutes ago"
+            el.textContent = moment(el.getAttribute('data-time')).fromNow();
+          });
+        });
+      </script>
     <% } %>
   <% } %>
 </body>

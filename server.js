@@ -461,12 +461,21 @@ app.get("/search-email-server-search",
     let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
     if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
     searchClause = `"${searchClause}"`;
-    const url = `https://graph.microsoft.com/v1.0/me/messages?$search=${encodeURIComponent(searchClause)}&$count=true&$top=50`;
+    const url = `https://graph.microsoft.com/v1.0/me/messages` +
+          `?$search=${encodeURIComponent(searchClause)}` +
+          //`&$filter=${encodeURIComponent("isDraft eq false")}` +
+          `&$count=true` +
+          `&$top=50`;
     console.log("Graph $search URL:", url);
     const resp = await axios.get(url, {
       headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
     });
-    let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+    let allMsgs = resp.data.value;
+
+    //  client‐side drop:
+    allMsgs = allMsgs.filter(m => m.isDraft === false);
+    //let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+    let results = allMsgs.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
     if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
     results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
     res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
