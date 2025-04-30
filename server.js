@@ -4,6 +4,12 @@ const axios = require("axios");
 const qs = require("querystring");
 const session = require("express-session");
 const cheerio = require("cheerio");
+const { createClient } = require('redis');
+const RedisStore = require('connect-redis')(session);
+
+// make a Redis client in “legacy mode” so connect-redis can use it
+const redisClient = createClient({ legacyMode: true, url: process.env.REDIS_URL });
+redisClient.connect().catch(console.error);
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -80,18 +86,31 @@ function ensureAuthenticated(req, res, next) {
 app.set('trust proxy', 1);
 
 app.use(express.urlencoded({ extended: true }));
-app.use(
-  session({
-    secret: process.env.EXPRESS_SESSION_SECRET,
-    resave: false,
-    saveUninitialized: true,
-    cookie: {
-      secure: true,    // only send over HTTPS
-      sameSite: 'none',// allow in Trello.com’s iframe
-      httpOnly: true   // standard best practice
-    }
-  })
-);
+app.use(session({
+  store: new RedisStore({ client: redisClient }),
+  secret: process.env.EXPRESS_SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: true,       // HTTPS only
+    httpOnly: true,
+    sameSite: 'none',   // allow in Trello iframe
+    maxAge: 30 * 24*60*60*1000  // 30 days
+  }
+}));
+
+// app.use(
+//   session({
+//     secret: process.env.EXPRESS_SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: true,
+//     cookie: {
+//       secure: true,    // only send over HTTPS
+//       sameSite: 'none',// allow in Trello.com’s iframe
+//       httpOnly: true   // standard best practice
+//     }
+//   })
+// );
 
 // app.use(
 //   session({
