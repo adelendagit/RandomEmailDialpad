@@ -4,12 +4,7 @@ const axios = require("axios");
 const qs = require("querystring");
 const session = require("express-session");
 const cheerio = require("cheerio");
-const { createClient } = require('redis');
-const RedisStore = require('connect-redis')(session);
-
-// make a Redis client in “legacy mode” so connect-redis can use it
-const redisClient = createClient({ legacyMode: true, url: process.env.REDIS_URL });
-redisClient.connect().catch(console.error);
+const FileStore = require('session-file-store')(session);
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -69,35 +64,84 @@ async function fetchAllMessages(initialUrl, accessToken) {
 //   }
 //   next();
 // }
-function ensureAuthenticated(req, res, next) {
-  const hasToken = !!req.session.user?.accessToken;
-  console.log(`✔️ ensureAuthenticated: hasToken=${hasToken}`);
-  if (!hasToken) {
-    console.log("↩️  redirecting to /auth from", req.originalUrl);
+// function ensureAuthenticated(req, res, next) {
+//   const hasToken = !!req.session.user?.accessToken;
+//   console.log(`✔️ ensureAuthenticated: hasToken=${hasToken}`);
+//   if (!hasToken) {
+//     console.log("↩️  redirecting to /auth from", req.originalUrl);
+//     req.session.returnTo = req.originalUrl;
+//     return res.redirect("/auth");
+//   }
+//   next();
+// }
+async function ensureAuthenticated(req, res, next) {
+  const user = req.session.user;
+  // if we’ve never logged in or have no refresh token, force interactive
+  if (!user?.refreshToken) {
     req.session.returnTo = req.originalUrl;
     return res.redirect("/auth");
   }
+
+  // refresh every ~50 minutes (tokens good for 60 min)
+  const now        = Date.now();
+  const age        = now - (user.tokenObtainedAt || 0);
+  const fiftyMins  = 50 * 60 * 1000;
+  if (age > fiftyMins) {
+    try {
+      const resp = await axios.post(
+        `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
+        qs.stringify({
+          client_id:     process.env.CLIENT_ID,
+          grant_type:    "refresh_token",
+          refresh_token: user.refreshToken,
+          client_secret: process.env.CLIENT_SECRET,
+          scope:         "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All"
+        }),
+        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      );
+      // swap in new tokens & timestamp
+      user.accessToken     = resp.data.access_token;
+      user.refreshToken    = resp.data.refresh_token;
+      user.tokenObtainedAt = now;
+      req.session.user     = user;
+      console.log("🔄 Refreshed token for", user.email);
+    }
+    catch (err) {
+      console.error("❌ Refresh failed:", err.response?.data || err.message);
+      // drop session and re-auth
+      delete req.session.user;
+      req.session.returnTo = req.originalUrl;
+      return res.redirect("/auth");
+    }
+  }
+
+  // still valid, or we just refreshed
   next();
 }
-
 
 // ——— App Setup ——————————————————————————————————————————————
 
 app.set('trust proxy', 1);
 
 app.use(express.urlencoded({ extended: true }));
-app.use(session({
-  store: new RedisStore({ client: redisClient }),
-  secret: process.env.EXPRESS_SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: true,       // HTTPS only
-    httpOnly: true,
-    sameSite: 'none',   // allow in Trello iframe
-    maxAge: 30 * 24*60*60*1000  // 30 days
-  }
-}));
+app.use(
+  session({
+    store: new FileStore({
+      path: './sessions',        // directory to hold session files
+      ttl: 30 * 24 * 60 * 60     // 30 days in seconds
+    }),
+    secret: process.env.EXPRESS_SESSION_SECRET,
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: true,            // HTTPS only
+      httpOnly: true,
+      sameSite: 'none',        // allow in Trello iframe
+      maxAge: 30 * 24 * 60 * 60 * 1000  // 30 days in ms
+    }
+  })
+);
+
 
 // app.use(
 //   session({
@@ -139,53 +183,96 @@ app.get("/auth", (req, res) => {
   );
 });
 
+// app.get("/auth/callback", async (req, res) => {
+//   try {
+//     const code = req.query.code;
+//     const tokenRes = await axios.post(
+//       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
+//       qs.stringify({
+//         client_id: process.env.CLIENT_ID,
+//         scope: "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+//         code,
+//         redirect_uri: process.env.REDIRECT_URI,
+//         grant_type: "authorization_code",
+//         client_secret: process.env.CLIENT_SECRET
+//       }),
+//       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+//     );
+
+//     const accessToken = tokenRes.data.access_token;
+//     const userRes = await axios.get("https://graph.microsoft.com/v1.0/me", {
+//       headers: { Authorization: `Bearer ${accessToken}` }
+//     });
+
+//     req.session.user = {
+//       id: userRes.data.id,
+//       name: userRes.data.displayName,
+//       email: userRes.data.mail || userRes.data.userPrincipalName,
+//       accessToken,
+//       refreshToken: tokenRes.data.refresh_token
+//     };
+
+//     const redirectTo = req.session.returnTo || "/dashboard";
+//     delete req.session.returnTo;
+//     //res.redirect(redirectTo);
+//     // replace your existing res.redirect(redirectTo) in /auth/callback
+//     res.send(`
+//       <!DOCTYPE html>
+//       <html>
+//         <head><meta charset="utf-8"></head>
+//         <body>
+//           <script>
+//             // then close this popup
+//             window.close();
+//           </script>
+//         </body>
+//       </html>
+//     `);
+
+//   } catch (err) {
+//     console.error("Auth callback error:", err.response?.data || err.message);
+//     res.status(500).send("Authentication failed.");
+//   }
+// });
+// ─── OAuth callback ──────────────────────────────────────────────────────
 app.get("/auth/callback", async (req, res) => {
   try {
     const code = req.query.code;
     const tokenRes = await axios.post(
       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
       qs.stringify({
-        client_id: process.env.CLIENT_ID,
-        scope: "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+        client_id:     process.env.CLIENT_ID,
+        scope:         "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
         code,
-        redirect_uri: process.env.REDIRECT_URI,
-        grant_type: "authorization_code",
+        redirect_uri:  process.env.REDIRECT_URI,
+        grant_type:    "authorization_code",
         client_secret: process.env.CLIENT_SECRET
       }),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
     );
 
-    const accessToken = tokenRes.data.access_token;
-    const userRes = await axios.get("https://graph.microsoft.com/v1.0/me", {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
-
+    // grab fresh tokens + timestamp
+    const { access_token, refresh_token } = tokenRes.data;
     req.session.user = {
-      id: userRes.data.id,
-      name: userRes.data.displayName,
-      email: userRes.data.mail || userRes.data.userPrincipalName,
-      accessToken,
-      refreshToken: tokenRes.data.refresh_token
+      id:               req.session.user?.id,
+      name:             null,   // will fill below
+      email:            null,
+      accessToken:      access_token,
+      refreshToken:     refresh_token,
+      tokenObtainedAt:  Date.now()
     };
 
-    const redirectTo = req.session.returnTo || "/dashboard";
-    delete req.session.returnTo;
-    //res.redirect(redirectTo);
-    // replace your existing res.redirect(redirectTo) in /auth/callback
-    res.send(`
-      <!DOCTYPE html>
-      <html>
-        <head><meta charset="utf-8"></head>
-        <body>
-          <script>
-            // then close this popup
-            window.close();
-          </script>
-        </body>
-      </html>
-    `);
+    // fetch user profile
+    const userRes = await axios.get("https://graph.microsoft.com/v1.0/me", {
+      headers: { Authorization: `Bearer ${access_token}` }
+    });
+    req.session.user.name  = userRes.data.displayName;
+    req.session.user.email = userRes.data.mail || userRes.data.userPrincipalName;
 
-  } catch (err) {
+    // all set—close the popup and leave the session behind
+    res.send(`<!DOCTYPE html><html><body><script>window.close();</script></body></html>`);
+  }
+  catch (err) {
     console.error("Auth callback error:", err.response?.data || err.message);
     res.status(500).send("Authentication failed.");
   }
@@ -333,15 +420,8 @@ app.get("/search-emails/expand", ensureAuthenticated, async (req, res) => {
 
 app.get("/search-email-server-search", 
   (req, res, next) => {
-    console.log(`[${new Date().toISOString()}] 🔍 GET /search-email-server-search`, {
-      url: req.originalUrl,
-      headers: {
-        cookie: req.headers.cookie,
-        host:   req.headers.host,
-        referer: req.headers.referer,
-        "user-agent": req.headers["user-agent"],
-      },
-      session: req.session.user ? { id: req.session.user.id, email: req.session.user.email } : null,
+    console.log(`🔍 GET ${req.originalUrl}`, {
+      cookie: req.headers.cookie, session: req.session.user
     });
     next();
   },
