@@ -133,11 +133,6 @@ app.get("/auth/callback", async (req, res) => {
         <head><meta charset="utf-8"></head>
         <body>
           <script>
-            // send a message back to the window that opened us:
-            window.opener.postMessage(
-              { type: 'msal-authenticated' },
-              '*'
-            );
             // then close this popup
             window.close();
           </script>
