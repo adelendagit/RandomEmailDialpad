@@ -99,7 +99,6 @@
   </style>
 </head>
 <body>
-  <h1>Server-Side Search Emails</h1>
   <details id="search-details" <%= (!results || results.length === 0) ? 'open' : '' %>>
     <summary>🔎 Search Emails</summary>
     <form method="GET" action="/search-email-server-search">
@@ -123,7 +122,6 @@
               <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
               <div class="chat-meta"><small data-time="<%= msg.receivedDateTime %>"></small></div>
               <strong><%= msg.subject || 'No subject' %></strong><br>
-              <small>From: <%= msg.from?.emailAddress?.address %></small><br>
               <small>To: <%= msg.toRecipients?.map(r=>r.emailAddress.address).join(', ') %></small>
               <div class="chat-body"><%- msg.body.content %></div>
             </div>
