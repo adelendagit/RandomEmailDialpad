@@ -30,7 +30,7 @@ function stripQuotedText(html) {
   $('[class^="MsoNormalTable"]').remove();
   $('[class*="MsoNormal"]').each((_, el) => {
     const t = $(el).text().trim();
-    if (/^\s*(Με εκτίμηση|Best regards|Kind regards|Thanks)/i.test(t)) {
+    if (/^\s*(Με εκτίμηση|regards|Thanks|Cheers)/i.test(t)) {
       $(el).nextAll().remove();
       $(el).remove();
     }
