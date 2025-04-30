@@ -56,15 +56,28 @@ async function fetchAllMessages(initialUrl, accessToken) {
 
 // ——— Authentication Middleware —————————————————————————————————
 
+// function ensureAuthenticated(req, res, next) {
+//   if (!req.session.user?.accessToken) {
+//     req.session.returnTo = req.originalUrl;
+//     return res.redirect("/auth");
+//   }
+//   next();
+// }
 function ensureAuthenticated(req, res, next) {
-  if (!req.session.user?.accessToken) {
+  const hasToken = !!req.session.user?.accessToken;
+  console.log(`✔️ ensureAuthenticated: hasToken=${hasToken}`);
+  if (!hasToken) {
+    console.log("↩️  redirecting to /auth from", req.originalUrl);
     req.session.returnTo = req.originalUrl;
     return res.redirect("/auth");
   }
   next();
 }
 
+
 // ——— App Setup ——————————————————————————————————————————————
+
+app.set('trust proxy', 1);
 
 app.use(express.urlencoded({ extended: true }));
 app.use(
@@ -72,9 +85,22 @@ app.use(
     secret: process.env.EXPRESS_SESSION_SECRET,
     resave: false,
     saveUninitialized: true,
-    cookie: { secure: false }
+    cookie: {
+      secure: true,    // only send over HTTPS
+      sameSite: 'none',// allow in Trello.com’s iframe
+      httpOnly: true   // standard best practice
+    }
   })
 );
+
+// app.use(
+//   session({
+//     secret: process.env.EXPRESS_SESSION_SECRET,
+//     resave: false,
+//     saveUninitialized: true,
+//     cookie: { secure: false }
+//   })
+// );
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
@@ -286,24 +312,39 @@ app.get("/search-emails/expand", ensureAuthenticated, async (req, res) => {
 
 // ——— Server-side search via $search —————————————————————————————————
 
-app.get("/search-email-server-search", ensureAuthenticated, async (req, res) => {
-  const targetEmail  = (req.query.email   || "").trim().toLowerCase();
-  const subjectQuery = (req.query.subject || "").trim().toLowerCase();
-  if (!targetEmail) {
-    return res.render("search-email-server-search", { user: req.session.user, results: null, query: "", subject: "" });
-  }
-  let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
-  if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
-  searchClause = `"${searchClause}"`;
-  const url = `https://graph.microsoft.com/v1.0/me/messages?$search=${encodeURIComponent(searchClause)}&$count=true&$top=50`;
-  console.log("Graph $search URL:", url);
-  const resp = await axios.get(url, {
-    headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
-  });
-  let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
-  if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
-  results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
-  res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
+app.get("/search-email-server-search", 
+  (req, res, next) => {
+    console.log(`[${new Date().toISOString()}] 🔍 GET /search-email-server-search`, {
+      url: req.originalUrl,
+      headers: {
+        cookie: req.headers.cookie,
+        host:   req.headers.host,
+        referer: req.headers.referer,
+        "user-agent": req.headers["user-agent"],
+      },
+      session: req.session.user ? { id: req.session.user.id, email: req.session.user.email } : null,
+    });
+    next();
+  },
+  ensureAuthenticated, 
+  async (req, res) => {
+    const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+    const subjectQuery = (req.query.subject || "").trim().toLowerCase();
+    if (!targetEmail) {
+      return res.render("search-email-server-search", { user: req.session.user, results: null, query: "", subject: "" });
+    }
+    let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
+    if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
+    searchClause = `"${searchClause}"`;
+    const url = `https://graph.microsoft.com/v1.0/me/messages?$search=${encodeURIComponent(searchClause)}&$count=true&$top=50`;
+    console.log("Graph $search URL:", url);
+    const resp = await axios.get(url, {
+      headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
+    });
+    let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+    if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
+    results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+    res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
 });
 
 // ——— Start Server ———————————————————————————————————————————
