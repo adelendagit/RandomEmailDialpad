@@ -5,6 +5,7 @@ const qs = require("querystring");
 const session = require("express-session");
 const cheerio = require("cheerio");
 const FileStore = require('session-file-store')(session);
+const cors = require('cors');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -139,6 +140,12 @@ app.use(
       sameSite: 'none',        // allow in Trello iframe
       maxAge: 30 * 24 * 60 * 60 * 1000  // 30 days in ms
     }
+  })
+);
+app.use(
+  cors({
+    origin: 'https://trello.com',   // allow Trello frames
+    credentials: true               // allow cookies + credentials
   })
 );
 
@@ -276,6 +283,14 @@ app.get("/auth/callback", async (req, res) => {
     console.error("Auth callback error:", err.response?.data || err.message);
     res.status(500).send("Authentication failed.");
   }
+});
+
+// right below your other routes
+app.get('/auth/status', (req, res) => {
+  if (req.session.user?.accessToken) {
+    return res.json({ authenticated: true });
+  }
+  res.status(401).json({ authenticated: false });
 });
 
 // ——— Dashboard & Logout ——————————————————————————————————————
