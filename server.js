@@ -125,7 +125,26 @@ app.get("/auth/callback", async (req, res) => {
 
     const redirectTo = req.session.returnTo || "/dashboard";
     delete req.session.returnTo;
-    res.redirect(redirectTo);
+    //res.redirect(redirectTo);
+    // replace your existing res.redirect(redirectTo) in /auth/callback
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+        <head><meta charset="utf-8"></head>
+        <body>
+          <script>
+            // send a message back to the window that opened us:
+            window.opener.postMessage(
+              { type: 'msal-authenticated' },
+              '*'
+            );
+            // then close this popup
+            window.close();
+          </script>
+        </body>
+      </html>
+    `);
+
   } catch (err) {
     console.error("Auth callback error:", err.response?.data || err.message);
     res.status(500).send("Authentication failed.");
