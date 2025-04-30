@@ -142,12 +142,23 @@ app.use(
     }
   })
 );
-app.use(
-  cors({
-    origin: 'https://trello.com',   // allow Trello frames
-    credentials: true               // allow cookies + credentials
-  })
-);
+// list all the origins you want to allow
+const allowedOrigins = [
+  'https://trello.com',
+  'https://hotspotsuk.co.uk'
+];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // allow requests with no origin (e.g. mobile apps, curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    callback(new Error(`CORS denied for origin ${origin}`));
+  },
+  credentials: true
+}));
 
 
 // app.use(
