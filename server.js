@@ -8,7 +8,7 @@ const cheerio = require("cheerio");
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Base Graph endpoint: first 50 messages, includes webLink
+// Base Graph endpoint: first 60 messages, includes webLink
 const MESSAGES_URL =
   "https://graph.microsoft.com/v1.0/me/messages" +
   "?$top=60" +
@@ -19,27 +19,15 @@ const MESSAGES_URL =
 
 function stripQuotedText(html) {
   const $ = cheerio.load(html);
-
-  // Remove embedded cid images
   $('img[src^="cid:"]').remove();
-
-  // Outlook reply blocks
   $('[id^="divRplyFwdMsg"], [id^="x_divRplyFwdMsg"], [id*="ms-outlook-mobile-body-separator-line"]').remove();
-
-  // Blockquote replies
   $("blockquote").remove();
-
-  // Trim after first <hr>
   const hr = $("hr").first();
   if (hr.length) {
     hr.nextAll().remove();
     hr.remove();
   }
-
-  // Signature tables
   $('[class^="MsoNormalTable"]').remove();
-
-  // Common signature lines
   $('[class*="MsoNormal"]').each((_, el) => {
     const t = $(el).text().trim();
     if (/^\s*(Με εκτίμηση|Best regards|Kind regards|Thanks)/i.test(t)) {
@@ -47,24 +35,9 @@ function stripQuotedText(html) {
       $(el).remove();
     }
   });
-
   return $.html();
 }
 
-// async function fetchAllMessages(initialUrl, accessToken) {
-//   let all = [];
-//   let url = initialUrl;
-//   while (url) {
-//     const res = await axios.get(url, {
-//       headers: { Authorization: `Bearer ${accessToken}` }
-//     });
-//     all = all.concat(res.data.value);
-//     url = res.data["@odata.nextLink"] || null;
-//     // safety cap
-//     if (all.length > 4000) break;
-//   }
-//   return all;
-// }
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
@@ -74,14 +47,22 @@ async function fetchAllMessages(initialUrl, accessToken) {
     console.log(`Fetching page ${page}: ${url}`);
     const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     all = all.concat(res.data.value);
-    url = res.data["@odata.nextLink"] || null;
-    // safety cap
+    url = res.data['@odata.nextLink'] || null;
     if (all.length > 4000) break;
   }
   console.log(`Fetched a total of ${all.length} messages.`);
   return all;
 }
 
+// ——— Authentication Middleware —————————————————————————————————
+
+function ensureAuthenticated(req, res, next) {
+  if (!req.session.user?.accessToken) {
+    req.session.returnTo = req.originalUrl;
+    return res.redirect("/auth");
+  }
+  next();
+}
 
 // ——— App Setup ——————————————————————————————————————————————
 
@@ -94,7 +75,6 @@ app.use(
     cookie: { secure: false }
   })
 );
-
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
@@ -121,8 +101,7 @@ app.get("/auth/callback", async (req, res) => {
       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
       qs.stringify({
         client_id: process.env.CLIENT_ID,
-        scope:
-          "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+        scope: "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
         code,
         redirect_uri: process.env.REDIRECT_URI,
         grant_type: "authorization_code",
@@ -144,7 +123,9 @@ app.get("/auth/callback", async (req, res) => {
       refreshToken: tokenRes.data.refresh_token
     };
 
-    res.redirect("/");
+    const redirectTo = req.session.returnTo || "/dashboard";
+    delete req.session.returnTo;
+    res.redirect(redirectTo);
   } catch (err) {
     console.error("Auth callback error:", err.response?.data || err.message);
     res.status(500).send("Authentication failed.");
@@ -153,14 +134,12 @@ app.get("/auth/callback", async (req, res) => {
 
 // ——— Dashboard & Logout ——————————————————————————————————————
 
-app.get("/", (req, res) => {
-  if (!req.session.user?.accessToken) return res.redirect("/auth");
+app.get("/", ensureAuthenticated, (req, res) => {
   res.redirect("/dashboard");
 });
 
-app.get("/dashboard", async (req, res) => {
+app.get("/dashboard", ensureAuthenticated, async (req, res) => {
   const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
   let photoDataUrl = null;
   try {
     const photoRes = await axios.get(
@@ -172,7 +151,7 @@ app.get("/dashboard", async (req, res) => {
     );
     const b64 = Buffer.from(photoRes.data, "binary").toString("base64");
     photoDataUrl = `data:image/jpeg;base64,${b64}`;
-  } catch {}
+  } catch {};
   res.render("dashboard", { user, photoDataUrl });
 });
 
@@ -182,9 +161,8 @@ app.get("/logout", (req, res) => {
 
 // ——— File + Library Routes ——————————————————————————————————
 
-app.get("/files", async (req, res) => {
+app.get("/files", ensureAuthenticated, async (req, res) => {
   const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
   const driveRes = await axios.get(
     "https://graph.microsoft.com/v1.0/me/drive/root/children",
     { headers: { Authorization: `Bearer ${user.accessToken}` } }
@@ -192,9 +170,8 @@ app.get("/files", async (req, res) => {
   res.render("files", { user, files: driveRes.data.value });
 });
 
-app.get("/shared-libraries", async (req, res) => {
+app.get("/shared-libraries", ensureAuthenticated, async (req, res) => {
   const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
   const siteRes = await axios.get(
     "https://graph.microsoft.com/v1.0/sites?search=*",
     { headers: { Authorization: `Bearer ${user.accessToken}` } }
@@ -206,12 +183,7 @@ app.get("/shared-libraries", async (req, res) => {
         `https://graph.microsoft.com/v1.0/sites/${site.id}/drives`,
         { headers: { Authorization: `Bearer ${req.session.user.accessToken}` } }
       );
-      return {
-        name: site.name,
-        webUrl: site.webUrl,
-        id: site.id,
-        drives: driveRes.data.value
-      };
+      return { name: site.name, webUrl: site.webUrl, id: site.id, drives: driveRes.data.value };
     })
   );
   res.render("shared", { user, sites: siteData });
@@ -219,331 +191,108 @@ app.get("/shared-libraries", async (req, res) => {
 
 app.get(
   "/shared-library/:siteId/:driveId",
+  ensureAuthenticated,
   async (req, res) => {
     const { siteId, driveId } = req.params;
     const user = req.session.user;
-    if (!user?.accessToken) return res.redirect("/auth");
     const filesRes = await axios.get(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/root/children`,
       { headers: { Authorization: `Bearer ${user.accessToken}` } }
     );
-    res.render("library", {
-      user,
-      items: filesRes.data.value,
-      siteId,
-      driveId
-    });
+    res.render("library", { user, items: filesRes.data.value, siteId, driveId });
   }
 );
 
 app.get(
   "/shared-library/:siteId/:driveId/folder/:itemId",
+  ensureAuthenticated,
   async (req, res) => {
     const { siteId, driveId, itemId } = req.params;
     const user = req.session.user;
-    if (!user?.accessToken) return res.redirect("/auth");
     const folderRes = await axios.get(
       `https://graph.microsoft.com/v1.0/sites/${siteId}/drives/${driveId}/items/${itemId}/children`,
       { headers: { Authorization: `Bearer ${user.accessToken}` } }
     );
-    res.render("library", {
-      user,
-      items: folderRes.data.value,
-      siteId,
-      driveId
-    });
+    res.render("library", { user, items: folderRes.data.value, siteId, driveId });
   }
 );
 
-// ——— Send Email ——————————————————————————————————————————————
+// ——— Send Email —————————————————————————————————————————————
 
-app.get("/send-email", (req, res) => {
-  const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
-  res.render("send-email", { user });
+app.get("/send-email", ensureAuthenticated, (req, res) => {
+  res.render("send-email", { user: req.session.user });
 });
 
-app.post("/send-email", async (req, res) => {
+app.post("/send-email", ensureAuthenticated, async (req, res) => {
   const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
   const { to, subject, body } = req.body;
   await axios.post(
     "https://graph.microsoft.com/v1.0/me/sendMail",
-    {
-      message: {
-        subject,
-        body: { contentType: "Text", content: body },
-        toRecipients: [{ emailAddress: { address: to } }]
-      }
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${user.accessToken}`,
-        "Content-Type": "application/json"
-      }
-    }
+    { message: { subject, body: { contentType: "Text", content: body }, toRecipients: [{ emailAddress: { address: to } }] } },
+    { headers: { Authorization: `Bearer ${user.accessToken}`, "Content-Type": "application/json" } }
   );
   res.send('<p>Email sent! <a href="/send-email">Send another</a></p>');
 });
 
-// ——— Search / Conversation ——————————————————————————————————————
+// ——— Client-side filtered search —————————————————————————————————
 
-// app.get("/search-emails", (req, res) => {
-//   const user = req.session.user;
-//   if (!user?.accessToken) return res.redirect("/auth");
-//   res.render("search-email", { user, results: null, query: "", subject: "" });
-// });
-
-//app.post("/search-emails", async (req, res) => {
-app.get("/search-emails", async (req, res) => {
+app.get("/search-emails", ensureAuthenticated, async (req, res) => {
   const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
-  const targetEmail = (req?.query?.email || "").toLowerCase();
-  const subjectQuery = (req?.query?.subject || "").toLowerCase();
-  //if (!targetEmail) return res.redirect("/search-emails");
-  // render empty form if no email provided
+  const targetEmail  = (req.query.email   || "").toLowerCase();
+  const subjectQuery = (req.query.subject || "").toLowerCase();
   if (!targetEmail) {
-    return res.render("search-email", {
-      user,
-      results: null,
-      query: "",
-      subject: ""
-    });
+    return res.render("search-email", { user, results: null, query: "", subject: "" });
   }
-
-  // 1) initial 50
-  const initialRes = await axios.get(MESSAGES_URL, {
-    headers: { Authorization: `Bearer ${user.accessToken}` }
-  });
+  const initialRes = await axios.get(MESSAGES_URL, { headers: { Authorization: `Bearer ${user.accessToken}` } });
   let msgs = initialRes.data.value;
-
-  // 2) safe filter
   msgs = msgs.filter(m => {
-    const fromAddr = m.from?.emailAddress?.address?.toLowerCase() || "";
-    const toMatch = (m.toRecipients || []).some(r =>
-      r.emailAddress?.address?.toLowerCase() === targetEmail
-    );
-    return fromAddr === targetEmail || toMatch;
+    const from = m.from?.emailAddress?.address.toLowerCase() || "";
+    const toMatch = (m.toRecipients || []).some(r => r.emailAddress?.address.toLowerCase() === targetEmail);
+    return from === targetEmail || toMatch;
   });
-  if (subjectQuery) {
-    msgs = msgs.filter(m =>
-      m.subject?.toLowerCase().includes(subjectQuery)
-    );
-  }
-
-  // 3) strip + map
-  const results = msgs
-    .sort((a, b) =>
-      new Date(b.receivedDateTime || b.sentDateTime) -
-      new Date(a.receivedDateTime || a.sentDateTime)
-    )
-    .map(m => ({
-      id: m.id,
-      subject: m.subject,
-      from: m.from,
-      toRecipients: m.toRecipients,
-      receivedDateTime: m.receivedDateTime,
-      sentDateTime: m.sentDateTime,
-      webLink: m.webLink,
-      body: { content: stripQuotedText(m.body.content || "") }
-    }));
-
-  res.render("search-email", {
-    user,
-    results,
-    // echo back into form fields
-    query: targetEmail,
-    subject: subjectQuery
-  });
+  if (subjectQuery) msgs = msgs.filter(m => m.subject?.toLowerCase().includes(subjectQuery));
+  const results = msgs.sort((a, b) => new Date(b.receivedDateTime || b.sentDateTime) - new Date(a.receivedDateTime || a.sentDateTime))
+    .map(m => ({ id: m.id, subject: m.subject, from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, sentDateTime: m.sentDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+  res.render("search-email", { user, results, query: targetEmail, subject: subjectQuery });
 });
 
-//app.post("/search-emails/expand", async (req, res) => {
-app.get("/search-emails/expand", async (req, res) => {
-  const user = req.session.user;
-  if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
-  //const targetEmail = (req.body.email || "").toLowerCase();
-  //const subjectQuery = (req.body.subject || "").toLowerCase();
-  const targetEmail = (req?.query?.email || "").toLowerCase();
-  const subjectQuery = (req?.query?.subject || "").toLowerCase();
-
-  // 1) page through all
-  let all = await fetchAllMessages(MESSAGES_URL, user.accessToken);
-
-  // 2) same safe filter
+app.get("/search-emails/expand", ensureAuthenticated, async (req, res) => {
+  const targetEmail  = (req.query.email   || "").toLowerCase();
+  const subjectQuery = (req.query.subject || "").toLowerCase();
+  let all = await fetchAllMessages(MESSAGES_URL, req.session.user.accessToken);
   all = all.filter(m => {
-    const fromAddr = m.from?.emailAddress?.address?.toLowerCase() || "";
-    const toMatch = (m.toRecipients || []).some(r =>
-      r.emailAddress?.address?.toLowerCase() === targetEmail
-    );
-    return fromAddr === targetEmail || toMatch;
+    const from = m.from?.emailAddress?.address.toLowerCase() || "";
+    const toMatch = (m.toRecipients || []).some(r => r.emailAddress?.address.toLowerCase() === targetEmail);
+    return from === targetEmail || toMatch;
   });
-  if (subjectQuery) {
-    all = all.filter(m =>
-      m.subject?.toLowerCase().includes(subjectQuery)
-    );
-  }
-
-  // 3) strip + map
-  const results = all.map(m => ({
-    id: m.id,
-    subject: m.subject,
-    from: m.from,
-    toRecipients: m.toRecipients,
-    receivedDateTime: m.receivedDateTime,
-    sentDateTime: m.sentDateTime,
-    webLink: m.webLink,
-    body: { content: stripQuotedText(m.body.content || "") }
-  }));
-
+  if (subjectQuery) all = all.filter(m => m.subject?.toLowerCase().includes(subjectQuery));
+  const results = all.map(m => ({ id: m.id, subject: m.subject, from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, sentDateTime: m.sentDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
   res.json(results);
 });
 
-// ——— Server‐side search via $search —————————————————————————————
-// app.get("/search-email-server-search", async (req, res) => {
-//   const user = req.session.user;
-//   if (!user?.accessToken) return res.redirect("/auth");
+// ——— Server-side search via $search —————————————————————————————————
 
-//   const targetEmail  = (req.query.email   || "").trim().toLowerCase();
-//   const subjectQuery = (req.query.subject || "").trim().toLowerCase();
-
-//   // no email? render empty form
-//   if (!targetEmail) {
-//     return res.render("search-email-server-search", {
-//       user,
-//       results: null,
-//       query:   "",
-//       subject: ""
-//     });
-//   }
-
-//   // Build the $search clause:
-//   //   look in from: OR to: (Graph supports both), plus optional subject:
-//   let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
-//   if (subjectQuery) {
-//     // require subject contains your term
-//     searchClause += ` AND subject:${subjectQuery}`;
-//   }
-//   searchClause = '"' + searchClause + '"';
-//   // Assemble the URL
-//   const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
-//   const params = [
-//     `$search=${encodeURIComponent(searchClause)}`,
-//     `$count=true`,                     
-//     `$top=50`//,
-//     //`$orderby=receivedDateTime`
-//   ];
-//   const url = `${baseUrl}?${params.join("&")}`;
-//   console.log("Graph $search URL:", url);
-
-//   // Fire off the request with the required header
-//   const resp = await axios.get(url, {
-//     headers: {
-//       Authorization:    `Bearer ${user.accessToken}`,
-//       ConsistencyLevel: "eventual"    // mandatory for $search
-//     }
-//   });
-
-//   // Grab the first page (you can still follow @odata.nextLink if you want more)
-//   const messages = resp.data.value;
-
-//   // Strip quoted text, map & sort
-//   const results = messages
-//     .map(m => ({
-//       id:               m.id,
-//       subject:          m.subject,
-//       from:             m.from,
-//       toRecipients:     m.toRecipients,
-//       receivedDateTime: m.receivedDateTime,
-//       webLink:          m.webLink,
-//       body: { content:  stripQuotedText(m.body.content || "") }
-//     }))
-//     .sort((a, b) =>
-//       new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
-//     );
-
-//   // Render with a copy of your template pointed at this route
-//   res.render("search-email-server-search", {
-//     user,
-//     results,
-//     query:   targetEmail,
-//     subject: subjectQuery
-//   });
-// });
-app.get("/search-email-server-search", async (req, res) => {
-  const user         = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
-
+app.get("/search-email-server-search", ensureAuthenticated, async (req, res) => {
   const targetEmail  = (req.query.email   || "").trim().toLowerCase();
   const subjectQuery = (req.query.subject || "").trim().toLowerCase();
-
-  // 1) Empty‐form case
   if (!targetEmail) {
-    return res.render("search-email-server-search", {
-      user, results: null, query: "", subject: ""
-    });
+    return res.render("search-email-server-search", { user: req.session.user, results: null, query: "", subject: "" });
   }
-
-  // 2) Build a simple $search that only looks for your address
   let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
-  if (subjectQuery) {
-    // require subject contains your term
-    searchClause += ` AND ${subjectQuery}`;
-  }
-  // wrap in quotes for graph
+  if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
   searchClause = `"${searchClause}"`;
-
-  const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
-  const params = [
-    `$search=${encodeURIComponent(searchClause)}`,
-    `$count=true`,
-    `$top=50`
-    // we’re doing JS-side sort, so no $orderby here
-  ];
-  const url = `${baseUrl}?${params.join("&")}`;
+  const url = `https://graph.microsoft.com/v1.0/me/messages?$search=${encodeURIComponent(searchClause)}&$count=true&$top=50`;
   console.log("Graph $search URL:", url);
-
-  // 3) Fetch with the required header
   const resp = await axios.get(url, {
-    headers: {
-      Authorization:    `Bearer ${user.accessToken}`,
-      ConsistencyLevel: "eventual"
-    }
+    headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
   });
-
-  // 4) Map + strip
-  let results = resp.data.value.map(m => ({
-    id:               m.id,
-    subject:          m.subject || "",
-    from:             m.from,
-    toRecipients:     m.toRecipients,
-    receivedDateTime: m.receivedDateTime,
-    webLink:          m.webLink,
-    body: { content:  stripQuotedText(m.body.content || "") }
-  }));
-
-  // 5) Client‐side subject filter
-  if (subjectQuery) {
-    results = results.filter(m =>
-      m.subject.toLowerCase().includes(subjectQuery)
-    );
-  }
-
-  // 6) JS sort newest→oldest
-  results.sort((a, b) =>
-    new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
-  );
-
-  // 7) Render
-  res.render("search-email-server-search", {
-    user,
-    results,
-    query: targetEmail,
-    subject: subjectQuery
-  });
+  let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+  if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
+  results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+  res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
 });
 
-
-// ——— Start ——————————————————————————————————————————————
+// ——— Start Server ———————————————————————————————————————————
 
 app.listen(port, () => {
   console.log(`App listening on port ${port}`);

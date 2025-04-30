@@ -11,7 +11,7 @@ const port = process.env.PORT || 3000;
 // Base Graph endpoint: first 50 messages, includes webLink
 const MESSAGES_URL =
   "https://graph.microsoft.com/v1.0/me/messages" +
-  "?$top=50" +
+  "?$top=60" +
   "&$select=subject,body,from,toRecipients,receivedDateTime,sentDateTime,webLink" +
   "&$orderby=receivedDateTime desc";
 
@@ -51,20 +51,37 @@ function stripQuotedText(html) {
   return $.html();
 }
 
+// async function fetchAllMessages(initialUrl, accessToken) {
+//   let all = [];
+//   let url = initialUrl;
+//   while (url) {
+//     const res = await axios.get(url, {
+//       headers: { Authorization: `Bearer ${accessToken}` }
+//     });
+//     all = all.concat(res.data.value);
+//     url = res.data["@odata.nextLink"] || null;
+//     // safety cap
+//     if (all.length > 4000) break;
+//   }
+//   return all;
+// }
 async function fetchAllMessages(initialUrl, accessToken) {
   let all = [];
   let url = initialUrl;
+  let page = 0;
   while (url) {
-    const res = await axios.get(url, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    page += 1;
+    console.log(`Fetching page ${page}: ${url}`);
+    const res = await axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
     all = all.concat(res.data.value);
     url = res.data["@odata.nextLink"] || null;
     // safety cap
-    if (all.length > 2000) break;
+    if (all.length > 4000) break;
   }
+  console.log(`Fetched a total of ${all.length} messages.`);
   return all;
 }
+
 
 // ——— App Setup ——————————————————————————————————————————————
 
@@ -271,18 +288,28 @@ app.post("/send-email", async (req, res) => {
 
 // ——— Search / Conversation ——————————————————————————————————————
 
-app.get("/search-emails", (req, res) => {
-  const user = req.session.user;
-  if (!user?.accessToken) return res.redirect("/auth");
-  res.render("search-email", { user, results: null, query: "", subject: "" });
-});
+// app.get("/search-emails", (req, res) => {
+//   const user = req.session.user;
+//   if (!user?.accessToken) return res.redirect("/auth");
+//   res.render("search-email", { user, results: null, query: "", subject: "" });
+// });
 
-app.post("/search-emails", async (req, res) => {
+//app.post("/search-emails", async (req, res) => {
+app.get("/search-emails", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.redirect("/auth");
-  const targetEmail = (req.body.email || "").toLowerCase();
-  const subjectQuery = (req.body.subject || "").toLowerCase();
-  if (!targetEmail) return res.redirect("/search-emails");
+  const targetEmail = (req?.query?.email || "").toLowerCase();
+  const subjectQuery = (req?.query?.subject || "").toLowerCase();
+  //if (!targetEmail) return res.redirect("/search-emails");
+  // render empty form if no email provided
+  if (!targetEmail) {
+    return res.render("search-email", {
+      user,
+      results: null,
+      query: "",
+      subject: ""
+    });
+  }
 
   // 1) initial 50
   const initialRes = await axios.get(MESSAGES_URL, {
@@ -324,16 +351,20 @@ app.post("/search-emails", async (req, res) => {
   res.render("search-email", {
     user,
     results,
+    // echo back into form fields
     query: targetEmail,
     subject: subjectQuery
   });
 });
 
-app.post("/search-emails/expand", async (req, res) => {
+//app.post("/search-emails/expand", async (req, res) => {
+app.get("/search-emails/expand", async (req, res) => {
   const user = req.session.user;
   if (!user?.accessToken) return res.status(401).json({ error: "Unauthorized" });
-  const targetEmail = (req.body.email || "").toLowerCase();
-  const subjectQuery = (req.body.subject || "").toLowerCase();
+  //const targetEmail = (req.body.email || "").toLowerCase();
+  //const subjectQuery = (req.body.subject || "").toLowerCase();
+  const targetEmail = (req?.query?.email || "").toLowerCase();
+  const subjectQuery = (req?.query?.subject || "").toLowerCase();
 
   // 1) page through all
   let all = await fetchAllMessages(MESSAGES_URL, user.accessToken);
@@ -366,6 +397,151 @@ app.post("/search-emails/expand", async (req, res) => {
 
   res.json(results);
 });
+
+// ——— Server‐side search via $search —————————————————————————————
+// app.get("/search-email-server-search", async (req, res) => {
+//   const user = req.session.user;
+//   if (!user?.accessToken) return res.redirect("/auth");
+
+//   const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+//   const subjectQuery = (req.query.subject || "").trim().toLowerCase();
+
+//   // no email? render empty form
+//   if (!targetEmail) {
+//     return res.render("search-email-server-search", {
+//       user,
+//       results: null,
+//       query:   "",
+//       subject: ""
+//     });
+//   }
+
+//   // Build the $search clause:
+//   //   look in from: OR to: (Graph supports both), plus optional subject:
+//   let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
+//   if (subjectQuery) {
+//     // require subject contains your term
+//     searchClause += ` AND subject:${subjectQuery}`;
+//   }
+//   searchClause = '"' + searchClause + '"';
+//   // Assemble the URL
+//   const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
+//   const params = [
+//     `$search=${encodeURIComponent(searchClause)}`,
+//     `$count=true`,                     
+//     `$top=50`//,
+//     //`$orderby=receivedDateTime`
+//   ];
+//   const url = `${baseUrl}?${params.join("&")}`;
+//   console.log("Graph $search URL:", url);
+
+//   // Fire off the request with the required header
+//   const resp = await axios.get(url, {
+//     headers: {
+//       Authorization:    `Bearer ${user.accessToken}`,
+//       ConsistencyLevel: "eventual"    // mandatory for $search
+//     }
+//   });
+
+//   // Grab the first page (you can still follow @odata.nextLink if you want more)
+//   const messages = resp.data.value;
+
+//   // Strip quoted text, map & sort
+//   const results = messages
+//     .map(m => ({
+//       id:               m.id,
+//       subject:          m.subject,
+//       from:             m.from,
+//       toRecipients:     m.toRecipients,
+//       receivedDateTime: m.receivedDateTime,
+//       webLink:          m.webLink,
+//       body: { content:  stripQuotedText(m.body.content || "") }
+//     }))
+//     .sort((a, b) =>
+//       new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
+//     );
+
+//   // Render with a copy of your template pointed at this route
+//   res.render("search-email-server-search", {
+//     user,
+//     results,
+//     query:   targetEmail,
+//     subject: subjectQuery
+//   });
+// });
+app.get("/search-email-server-search", async (req, res) => {
+  const user         = req.session.user;
+  if (!user?.accessToken) return res.redirect("/auth");
+
+  const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+  const subjectQuery = (req.query.subject || "").trim().toLowerCase();
+
+  // 1) Empty‐form case
+  if (!targetEmail) {
+    return res.render("search-email-server-search", {
+      user, results: null, query: "", subject: ""
+    });
+  }
+
+  // 2) Build a simple $search that only looks for your address
+  let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
+  if (subjectQuery) {
+    // require subject contains your term
+    searchClause += ` AND ${subjectQuery}`;
+  }
+  // wrap in quotes for graph
+  searchClause = `"${searchClause}"`;
+
+  const baseUrl = "https://graph.microsoft.com/v1.0/me/messages";
+  const params = [
+    `$search=${encodeURIComponent(searchClause)}`,
+    `$count=true`,
+    `$top=50`
+    // we’re doing JS-side sort, so no $orderby here
+  ];
+  const url = `${baseUrl}?${params.join("&")}`;
+  console.log("Graph $search URL:", url);
+
+  // 3) Fetch with the required header
+  const resp = await axios.get(url, {
+    headers: {
+      Authorization:    `Bearer ${user.accessToken}`,
+      ConsistencyLevel: "eventual"
+    }
+  });
+
+  // 4) Map + strip
+  let results = resp.data.value.map(m => ({
+    id:               m.id,
+    subject:          m.subject || "",
+    from:             m.from,
+    toRecipients:     m.toRecipients,
+    receivedDateTime: m.receivedDateTime,
+    webLink:          m.webLink,
+    body: { content:  stripQuotedText(m.body.content || "") }
+  }));
+
+  // 5) Client‐side subject filter
+  if (subjectQuery) {
+    results = results.filter(m =>
+      m.subject.toLowerCase().includes(subjectQuery)
+    );
+  }
+
+  // 6) JS sort newest→oldest
+  results.sort((a, b) =>
+    new Date(b.receivedDateTime) - new Date(a.receivedDateTime)
+  );
+
+  // 7) Render
+  res.render("search-email-server-search", {
+    user,
+    results,
+    query: targetEmail,
+    subject: subjectQuery
+  });
+});
+
 
 // ——— Start ——————————————————————————————————————————————
 
