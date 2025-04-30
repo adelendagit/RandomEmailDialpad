@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Server-Side Search Emails</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+    body { font-family: sans-serif; max-width: 800px; margin: 2em auto; padding: 0 1em; background: #f9f9f9; }
+    input, button { padding: 10px; margin-top: 10px; width: 100%; }
+    .chat-thread { display: flex; flex-direction: column; gap: 15px; padding: 20px 0; }
+    .chat-message { display: flex; width: 100%; }
+    .chat-message.sent { justify-content: flex-end; }
+    .chat-message.received { justify-content: flex-start; }
+    .chat-bubble { background: #f1f1f1; padding: 12px 16px; border-radius: 18px; max-width: 65%; box-shadow: 0 1px 4px rgba(0,0,0,0.1); position: relative; }
+    .chat-body { max-height: 200px; overflow-y: auto; margin-top: 10px; line-height: 1.4; }
+    .chat-message.sent .chat-bubble { background: #edf4fc; color: #111; border-bottom-right-radius: 4px; border-bottom-left-radius: 18px; }
+    .chat-message.received .chat-bubble { background: #f1f1f1; border-bottom-left-radius: 4px; border-bottom-right-radius: 18px; }
+    .open-link { position: absolute; top: 8px; right: 8px; font-size: 1.2em; text-decoration: none; color: inherit; opacity: 0.6; }
+    .open-link:hover { opacity: 1; }
+    .chat-meta { font-size: 0.8em; color: #666; margin-bottom: 6px; }
+    h1, h2 { text-align: center; }
+    form { margin-bottom: 30px; }
+  </style>
+</head>
+<body>
+  <form method="GET" action="/search-email-server-search">
+    <input type="email" name="email" placeholder="someone@example.com" required value="<%= query %>" />
+    <input type="text" name="subject" placeholder="(optional) Subject contains..." value="<%= subject %>" />
+    <button type="submit">Search</button>
+  </form>
+
+  <% if (results) { %>
+    <% if (results.length === 0) { %>
+      <p>No emails found involving "<%= query %>"<% if (subject) { %> with subject containing "<%= subject %>"<% } %>.</p>
+    <% } else { %>
+      <div class="chat-thread">
+        <% results.forEach(msg => {
+             const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
+             const isSent   = fromAddr === user.email.toLowerCase();
+             const side     = isSent ? 'sent' : 'received';
+             const date     = new Date(msg.receivedDateTime).toLocaleString();
+        %>
+          <div class="chat-message <%= side %>">          
+            <div class="chat-bubble">
+              <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
+              <div class="chat-meta"><small><%= date %></small></div>
+              <strong><%= msg.subject || 'No subject' %></strong><br>
+              <small>From: <%= msg.from?.emailAddress?.address %></small><br>
+              <small>To:   <%= msg.toRecipients?.map(r=>r.emailAddress.address).join(', ') %></small>
+              <div class="chat-body"><%- msg.body.content %></div>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+    <% } %>
+  <% } %>
+</body>
+</html>
