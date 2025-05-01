@@ -39,25 +39,29 @@
     .chat-message.sent .chat-bubble { background: #d0e7ff; }
     .chat-message.received .chat-bubble { background: #f7f7f7; }
 
-    /* Header inside bubble */
+    /* Header inside bubble - separate background */
     .chat-header {
       display: flex;
       align-items: center;
       gap: 8px;
       font-size: 0.8rem;
       color: #555;
-      border-bottom: 1px solid rgba(0,0,0,0.1);
-      padding-bottom: 6px;
-      margin-bottom: 8px;
+      background: rgba(0,0,0,0.1);
+      padding: 6px 10px;
+      position: relative;
+      margin: -10px -14px 8px -14px;
+      border-top-left-radius: 16px;
+      border-top-right-radius: 16px;
     }
     .chat-header .open-link {
       text-decoration: none;
       font-size: 1.1rem;
       color: #0079bf;
       opacity: 0.7;
+      flex-shrink: 0;
     }
     .chat-header .open-link:hover { opacity: 1; }
-    .chat-header .time { white-space: nowrap; }
+    .chat-header .time { white-space: nowrap; flex-shrink: 0; }
     .chat-header .subject {
       font-weight: 500;
       overflow: hidden;
@@ -108,10 +112,9 @@
       document.querySelectorAll('.time').forEach(el => {
         el.textContent = moment(el.getAttribute('data-time')).fromNow();
       });
-      // Sanitize, normalize whitespace, and inject HTML
+      // Sanitize and inject HTML
       document.querySelectorAll('.chat-body').forEach(el => {
         let raw = el.getAttribute('data-content') || '';
-        // Sanitize HTML
         let clean = DOMPurify.sanitize(raw, {
           ALLOWED_TAGS: ['p','div','b','i','em','strong','a','ul','ol','li','br'],
           ALLOWED_ATTR: ['href','target','title']
