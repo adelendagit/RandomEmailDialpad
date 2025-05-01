@@ -162,9 +162,11 @@ app.use(cors({
   credentials: true
 }));
 
-
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
+
+// Mount Dialpad routes under a unique prefix to avoid collisions:
+app.use('/dialpad', dialpadRouter);
 
 // ——— OAuth ——————————————————————————————————————————————
 

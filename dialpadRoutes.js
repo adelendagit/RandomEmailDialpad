@@ -72,12 +72,12 @@ router.get('/history/:userId/with/:contactNumber', async (req, res) => {
     const target = normalize(contactNumber);
 
     const calls = allCalls.filter(c=>
-      normalize(c.from_number)===target ||
-      normalize(c.to_number)  ===target
+      normalize(c.external_number)===target ||
+      normalize(c.internal_number)  ===target
     );
     const texts = allTexts.filter(t=>
-      normalize(t.from_number)===target ||
-      normalize(t.to_number)  ===target
+      normalize(t.from_phone)===target ||
+      normalize(t.to_phone)  ===target
     );
 
     res.json({ calls, texts });
