@@ -48,24 +48,30 @@ async function fetchTranscript(callId) {
 }
 
 // fetchAllUsers: returns an array of user objects ({ id, name, email, … })
+// returns an array of all users, paging via the `cursor` field
+// Helper: list all users, paging via the `cursor` field and reading `items[]`
 async function fetchAllUsers() {
-  let users = [];
-  let page = 1;
-  const perPage = 100;
-  while (true) {
-    console.log(`[fetchAllUsers] fetching page ${page}`);
-    // Dialpad supports ?page & ?per_page
-    const { data } = await DIALPAD_API.get('/users', {
-      params: { page, per_page: perPage }
-    });
-    users.push(...data.users);
-    if (data.users.length < perPage) break;    // no more pages
-    page++;
-  }
+  let users  = [];
+  let cursor = null;
+
+  do {
+    console.log(`[fetchAllUsers] fetching cursor=${cursor}`);
+    const params = { limit: 100 };
+    if (cursor) params.cursor = cursor;
+
+    const resp = await DIALPAD_API.get('/users', { params });
+    const data = resp.data;
+
+    // this API returns { items: [...], cursor: "…" }
+    const batch = Array.isArray(data.items) ? data.items : [];
+    users.push(...batch);
+
+    cursor = data.cursor;    // loop until no more cursor
+  } while (cursor);
+
   console.log(`[fetchAllUsers] total users = ${users.length}`);
   return users;
 }
-
 
 const router = express.Router();
 
@@ -112,6 +118,58 @@ router.get('/history/:userId', async (req, res) => {
     ]);
     res.json({ callHistory: calls, chatHistory: texts });
   } catch(err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /history/all/with/:contactNumber?days=30
+// Returns only users who’ve interacted with that number, and only the matching records
+router.get('/history/all/with/:contactNumber', async (req, res) => {
+  try {
+    const days          = parseInt(req.query.days) || 30;
+    const contactNumber = req.params.contactNumber;
+    const normalize     = n => n ? n.toString().replace(/[^0-9+]/g, '') : '';
+    const target        = normalize(contactNumber);
+
+    console.log(`[route /history/all/with] contact=${contactNumber}, days=${days}`);
+
+    const allUsers = await fetchAllUsers();    // as defined previously
+    const results  = [];
+
+    for (const u of allUsers) {
+      console.log(`  checking user ${u.id}`);
+      const [calls, texts] = await Promise.all([
+        fetchStats(u.id, 'calls', days),
+        fetchStats(u.id, 'texts', days)
+      ]);
+
+      // filter each user’s arrays
+      const callsWithContact = calls.filter(c =>
+        normalize(c.external_number) === target ||
+        normalize(c.internal_number)   === target
+      );
+      const textsWithContact = texts.filter(t =>
+        normalize(t.from_phone) === target ||
+        normalize(t.to_phone)   === target
+      );
+
+      // only include users who have at least one interaction
+      if (callsWithContact.length || textsWithContact.length) {
+        results.push({
+          id:          u.id,
+          name:        u.name,
+          email:       u.email,
+          callHistory: callsWithContact,
+          chatHistory: textsWithContact
+        });
+      }
+    }
+
+    console.log(`[route /history/all/with] found ${results.length} users with interactions`);
+    res.json({ users: results });
+  }
+  catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
