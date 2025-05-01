@@ -111,14 +111,23 @@
       // Sanitize, normalize whitespace, and inject HTML
       document.querySelectorAll('.chat-body').forEach(el => {
         let raw = el.getAttribute('data-content') || '';
+        // Sanitize HTML
         let clean = DOMPurify.sanitize(raw, {
           ALLOWED_TAGS: ['p','div','b','i','em','strong','a','ul','ol','li','br'],
           ALLOWED_ATTR: ['href','target','title']
         });
-        // collapse multiple breaks and empty blocks
+        // Flatten paragraphs to single breaks
         clean = clean
-          .replace(/(\s*(<br\s*\/?>)\s*){2,}/g, '<br>')
-          .replace(/(<(p|div)>\s*<\/(p|div)>\s*)+/g, '');
+          // convert divs to paragraphs
+          .replace(/<div[^>]*>/g, '<p>')
+          .replace(/<\/div>/g, '</p>')
+          // turn paragraph closes + opens into one break
+          .replace(/<\/p>\s*<p>/g, '<br>')
+          // remove any remaining paragraph tags
+          .replace(/<p[^>]*>/g, '')
+          .replace(/<\/p>/g, '')
+          // collapse multiple breaks
+          .replace(/(<br>\s*){2,}/g, '<br>');
         el.innerHTML = clean;
       });
     });
