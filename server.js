@@ -6,6 +6,8 @@ const session = require("express-session");
 const cheerio = require("cheerio");
 const FileStore = require('session-file-store')(session);
 const cors = require('cors');
+const dialpadRouter = require('./dialpadRoutes');
+
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -161,27 +163,6 @@ app.use(cors({
 }));
 
 
-// app.use(
-//   session({
-//     secret: process.env.EXPRESS_SESSION_SECRET,
-//     resave: false,
-//     saveUninitialized: true,
-//     cookie: {
-//       secure: true,    // only send over HTTPS
-//       sameSite: 'none',// allow in Trello.com’s iframe
-//       httpOnly: true   // standard best practice
-//     }
-//   })
-// );
-
-// app.use(
-//   session({
-//     secret: process.env.EXPRESS_SESSION_SECRET,
-//     resave: false,
-//     saveUninitialized: true,
-//     cookie: { secure: false }
-//   })
-// );
 app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
