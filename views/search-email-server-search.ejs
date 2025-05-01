@@ -73,11 +73,12 @@
       max-height: 140px;
       overflow-y: auto;
     }
-    .chat-body p { margin: 0 0 0.5em; }
-    .chat-body ul, .chat-body ol { margin: 0.5em 0 0.5em 1em; }
+    .chat-body p, .chat-body div { margin: 0 0 0.3em; }
+    .chat-body ul, .chat-body ol { margin: 0.3em 0 0.3em 1em; }
     .chat-body strong { font-weight: 600; }
     .chat-body em { font-style: italic; }
     .chat-body a { color: #006bb3; text-decoration: underline; }
+    .chat-body br { display: block; margin: 0.3em 0; }
     .chat-body::-webkit-scrollbar { width: 6px; }
     .chat-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
   </style>
@@ -96,7 +97,6 @@
             <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
             <span class="subject"><%= msg.subject || 'No subject' %></span>
           </div>
-          <!-- Raw HTML stored in data-content, will be sanitized -->
           <div class="chat-body" data-content="<%- msg.body.content.replace(/"/g, '&quot;') %>"></div>
         </div>
       </div>
@@ -108,13 +108,17 @@
       document.querySelectorAll('.time').forEach(el => {
         el.textContent = moment(el.getAttribute('data-time')).fromNow();
       });
-      // Sanitize and inject HTML
+      // Sanitize, normalize whitespace, and inject HTML
       document.querySelectorAll('.chat-body').forEach(el => {
-        const raw = el.getAttribute('data-content') || '';
-        const clean = DOMPurify.sanitize(raw, {
-          ALLOWED_TAGS: ['p','b','i','em','strong','a','ul','ol','li','br'],
+        let raw = el.getAttribute('data-content') || '';
+        let clean = DOMPurify.sanitize(raw, {
+          ALLOWED_TAGS: ['p','div','b','i','em','strong','a','ul','ol','li','br'],
           ALLOWED_ATTR: ['href','target','title']
         });
+        // collapse multiple breaks and empty blocks
+        clean = clean
+          .replace(/(\s*(<br\s*\/?>)\s*){2,}/g, '<br>')
+          .replace(/(<(p|div)>\s*<\/(p|div)>\s*)+/g, '');
         el.innerHTML = clean;
       });
     });
