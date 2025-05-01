@@ -444,42 +444,121 @@ app.get("/search-emails/expand", ensureAuthenticated, async (req, res) => {
 
 // ——— Server-side search via $search —————————————————————————————————
 
-app.get("/search-email-server-search", 
-  (req, res, next) => {
-    console.log(`🔍 GET ${req.originalUrl}`, {
-      cookie: req.headers.cookie, session: req.session.user
-    });
-    next();
-  },
-  ensureAuthenticated, 
-  async (req, res) => {
-    const targetEmail  = (req.query.email   || "").trim().toLowerCase();
-    const subjectQuery = (req.query.subject || "").trim().toLowerCase();
-    if (!targetEmail) {
-      return res.render("search-email-server-search", { user: req.session.user, results: null, query: "", subject: "" });
-    }
-    let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
-    if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
-    searchClause = `"${searchClause}"`;
-    const url = `https://graph.microsoft.com/v1.0/me/messages` +
-          `?$search=${encodeURIComponent(searchClause)}` +
-          //`&$filter=${encodeURIComponent("isDraft eq false")}` +
-          `&$count=true` +
-          `&$top=50`;
-    console.log("Graph $search URL:", url);
-    const resp = await axios.get(url, {
-      headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
-    });
-    let allMsgs = resp.data.value;
+// app.get("/search-email-server-search", 
+//   (req, res, next) => {
+//     console.log(`🔍 GET ${req.originalUrl}`, {
+//       cookie: req.headers.cookie, session: req.session.user
+//     });
+//     next();
+//   },
+//   ensureAuthenticated, 
+//   async (req, res) => {
+//     const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+//     const subjectQuery = (req.query.subject || "").trim().toLowerCase();
+//     if (!targetEmail) {
+//       return res.render("search-email-server-search", { user: req.session.user, results: null, query: "", subject: "" });
+//     }
+//     let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
+//     if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
+//     searchClause = `"${searchClause}"`;
+//     const url = `https://graph.microsoft.com/v1.0/me/messages` +
+//           `?$search=${encodeURIComponent(searchClause)}` +
+//           //`&$filter=${encodeURIComponent("isDraft eq false")}` +
+//           `&$count=true` +
+//           `&$top=50`;
+//     console.log("Graph $search URL:", url);
+//     const resp = await axios.get(url, {
+//       headers: { Authorization: `Bearer ${req.session.user.accessToken}`, ConsistencyLevel: "eventual" }
+//     });
+//     let allMsgs = resp.data.value;
 
-    //  client‐side drop:
-    allMsgs = allMsgs.filter(m => m.isDraft === false);
-    //let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
-    let results = allMsgs.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
-    if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
-    results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
-    res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
+//     //  client‐side drop:
+//     allMsgs = allMsgs.filter(m => m.isDraft === false);
+//     //let results = resp.data.value.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+//     let results = allMsgs.map(m => ({ id: m.id, subject: m.subject || "", from: m.from, toRecipients: m.toRecipients, receivedDateTime: m.receivedDateTime, webLink: m.webLink, body: { content: stripQuotedText(m.body.content || "") } }));
+//     if (subjectQuery) results = results.filter(m => m.subject.toLowerCase().includes(subjectQuery));
+//     results.sort((a,b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+//     res.render("search-email-server-search", { user: req.session.user, results, query: targetEmail, subject: subjectQuery });
+// });
+app.get("/search-email-server-search", ensureAuthenticated, async (req, res) => {
+  const targetEmail  = (req.query.email   || "").trim().toLowerCase();
+  const subjectQuery = (req.query.subject || "").trim().toLowerCase();
+
+  if (!targetEmail) {
+    return res.render("search-email-server-search", {
+      user: req.session.user,
+      results: null,
+      query: "",
+      subject: ""
+    });
+  }
+
+  // 1) build your graph “search” clause
+  let searchClause = `from:${targetEmail} OR to:${targetEmail}`;
+  if (subjectQuery) searchClause += ` AND ${subjectQuery}`;
+  searchClause = `"${searchClause}"`;
+
+  // 2) list the mailboxes you want to hit today
+  const mailboxes = [
+    "achilleas@delendaest.co.uk",
+    "helen@delendaest.co.uk"
+  ];
+
+  const headers = {
+    Authorization: `Bearer ${req.session.user.accessToken}`,
+    ConsistencyLevel: "eventual"
+  };
+
+  let allResults = [];
+
+  // 3) loop over each mailbox
+  for (const mailbox of mailboxes) {
+    console.log(mailbox);
+    const url =
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/messages` +
+      `?$search=${encodeURIComponent(searchClause)}` +
+      `&$count=true&$top=50`;
+    try {
+
+    const resp = await axios.get(url, { headers });
+    const msgs = resp.data.value
+      .filter(m => !m.isDraft)
+      .map(m => ({
+        mailbox,
+        id: m.id,
+        subject: m.subject || "",
+        from: m.from,
+        toRecipients: m.toRecipients,
+        receivedDateTime: m.receivedDateTime,
+        webLink: m.webLink,
+        body: { content: stripQuotedText(m.body.content || "") }
+      }));
+
+    allResults.push(...msgs);
+    }
+    catch (err) {
+      if (err.response?.status === 403) {
+      console.warn(`Skipping ${mailbox}: no access`);
+      continue;
+    }
+    throw err;  // re-throw anything else
+    }
+  }
+
+  // 4) post‐process and render
+  allResults.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
+  if (subjectQuery) {
+    allResults = allResults.filter(m => m.subject.toLowerCase().includes(subjectQuery));
+  }
+
+  res.render("search-email-server-search", {
+    user: req.session.user,
+    results:  allResults,
+    query:    targetEmail,
+    subject:  subjectQuery
+  });
 });
+
 
 // ——— Start Server ———————————————————————————————————————————
 
