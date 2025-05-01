@@ -85,53 +85,27 @@
     .chat-body br { display: block; margin: 0.3em 0; }
     .chat-body::-webkit-scrollbar { width: 6px; }
     .chat-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
-
-    /* “No messages” state */
-    .no-messages {
-      text-align: center;
-      color: #666;
-      margin: 2em 0;
-    }
-    .no-messages .compose-link {
-      display: inline-block;
-      margin-top: 0.5em;
-      padding: 0.6em 1em;
-      background: #0079bf;
-      color: #fff;
-      text-decoration: none;
-      border-radius: 4px;
-    }
-    .no-messages .compose-link:hover {
-      background: #005a8c;
-    }
   </style>
 </head>
 <body>
   <div class="chat-thread">
-    <% if (!results || results.length === 0) { %>
-      <div class="no-messages">
-        <p>No messages found.</p>
-      </div>
-    <% } else { %>
-      <% results.forEach(msg => {
-           const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
-           const isSent   = fromAddr === user.email.toLowerCase();
-           const toList   = msg.toRecipients?.map(r=>r.emailAddress.address).join(', ');
-      %>
-        <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
-          <div class="chat-bubble" title="To: <%= toList %>">
-            <div class="chat-header">
-              <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
-              <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
-              <span class="subject"><%= msg.subject || 'No subject' %></span>
-            </div>
-            <div class="chat-body" data-content="<%- msg.body.content.replace(/\"/g, '&quot;') %>"></div>
+    <% results.forEach(msg => {
+         const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
+         const isSent   = fromAddr === user.email.toLowerCase();
+         const toList   = msg.toRecipients?.map(r=>r.emailAddress.address).join(', ');
+    %>
+      <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
+        <div class="chat-bubble" title="To: <%= toList %>">
+          <div class="chat-header">
+            <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
+            <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
+            <span class="subject"><%= msg.subject || 'No subject' %></span>
           </div>
+          <div class="chat-body" data-content="<%- msg.body.content.replace(/"/g, '&quot;') %>"></div>
         </div>
-      <% }) %>
-    <% } %>
+      </div>
+    <% }) %>
   </div>
-
   <script>
     document.addEventListener('DOMContentLoaded', () => {
       // Format timestamps
@@ -147,11 +121,15 @@
         });
         // Flatten paragraphs to single breaks
         clean = clean
+          // convert divs to paragraphs
           .replace(/<div[^>]*>/g, '<p>')
           .replace(/<\/div>/g, '</p>')
+          // turn paragraph closes + opens into one break
           .replace(/<\/p>\s*<p>/g, '<br>')
+          // remove any remaining paragraph tags
           .replace(/<p[^>]*>/g, '')
           .replace(/<\/p>/g, '')
+          // collapse multiple breaks
           .replace(/(<br>\s*){2,}/g, '<br>');
         el.innerHTML = clean;
       });
