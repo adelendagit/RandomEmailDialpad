@@ -19,124 +19,86 @@
       background: #f9f9f9;
       color: #333;
     }
-    h1 { font-size: 1.4rem; margin-bottom: 0.5em; text-align: center; }
-
-    /* Form and accordion */
-    details { margin-bottom: 1em; }
-    details summary {
-      cursor: pointer;
-      padding: 8px;
-      background: #0079bf;
-      color: #fff;
-      border-radius: 4px;
-      font-size: 1rem;
-      user-select: none;
-    }
-    details[open] summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
-    details form {
-      border: 1px solid #0079bf;
-      padding: 10px;
-      border-top: none;
-      background: #fff;
-      border-bottom-left-radius: 4px;
-      border-bottom-right-radius: 4px;
-    }
-    input, button {
-      font-size: 0.9rem;
-      padding: 6px;
-      margin-top: 8px;
-      width: 100%;
-    }
-    button {
-      background: #0079bf;
-      color: #fff;
-      border: none;
-      border-radius: 3px;
-      cursor: pointer;
-    }
-    button:hover { background: #005a8c; }
 
     /* Chat thread styling */
-    .chat-thread { display: flex; flex-direction: column; gap: 10px; padding: 15px 0; }
+    .chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 15px 0; }
     .chat-message { display: flex; width: 100%; }
     .chat-message.sent { justify-content: flex-end; }
     .chat-message.received { justify-content: flex-start; }
     .chat-bubble {
       background: #f1f9fd;
-      padding: 8px 12px;
-      border-radius: 12px;
-      max-width: 70%;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      padding: 10px 14px;
+      border-radius: 16px;
+      max-width: 75%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
       position: relative;
       font-size: 0.9rem;
+      overflow: hidden;
     }
-    .chat-message.sent .chat-bubble {
-      background: #e1f0fb;
-      border-bottom-right-radius: 4px;
-      border-bottom-left-radius: 12px;
-    }
-    .chat-message.received .chat-bubble {
-      background: #f1f1f1;
-      border-bottom-left-radius: 4px;
-      border-bottom-right-radius: 12px;
-    }
-    .chat-body {
-      max-height: 150px;
-      overflow-y: auto;
-      margin-top: 6px;
+    .chat-message.sent .chat-bubble { background: #d0e7ff; }
+    .chat-message.received .chat-bubble { background: #f7f7f7; }
+
+    /* Header inside bubble */
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
       font-size: 0.8rem;
+      color: #555;
+      border-bottom: 1px solid rgba(0,0,0,0.1);
+      padding-bottom: 6px;
+      margin-bottom: 8px;
+      cursor: default;
     }
-    .chat-meta { font-size: 0.75rem; color: #666; margin-bottom: 4px; }
-    .open-link {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      font-size: 1rem;
-      opacity: 0.5;
+    .chat-header .time { flex-shrink: 0; }
+    .chat-header .open-link {
       text-decoration: none;
+      font-size: 1.1rem;
+      color: #0079bf;
+      opacity: 0.7;
+      flex-shrink: 0;
     }
-    .open-link:hover { opacity: 1; }
+    .chat-header .open-link:hover { opacity: 1; }
+    .chat-header .subject { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Body of message */
+    .chat-body {
+      font-size: 0.8rem;
+      white-space: pre-wrap;
+      max-height: 140px;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+    .chat-body::-webkit-scrollbar { width: 6px; }
+    .chat-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+
   </style>
 </head>
 <body>
-  <details id="search-details" <%= (!results || results.length === 0) ? 'open' : '' %>>
-    <summary>🔎 Search Emails</summary>
-    <form method="GET" action="/search-email-server-search">
-      <input type="email" name="email" placeholder="someone@example.com" required value="<%= query %>" />
-      <input type="text" name="subject" placeholder="(optional) Subject contains..." value="<%= subject %>" />
-      <button type="submit">Search</button>
-    </form>
-  </details>
-
-  <% if (results) { %>
-    <% if (results.length === 0) { %>
-      <p>No emails found involving "<%= query %>"<% if (subject) { %> with subject containing "<%= subject %>"<% } %>.</p>
-    <% } else { %>
-      <div class="chat-thread">
-        <% results.forEach(msg => {
-             const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
-             const isSent   = fromAddr === user.email.toLowerCase();
-        %>
-          <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
-            <div class="chat-bubble">
-              <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
-              <div class="chat-meta"><small data-time="<%= msg.receivedDateTime %>"></small></div>
-              <strong><%= msg.subject || 'No subject' %></strong><br>
-              <small>To: <%= msg.toRecipients?.map(r=>r.emailAddress.address).join(', ') %></small>
-              <div class="chat-body"><%- msg.body.content %></div>
-            </div>
+  <div class="chat-thread">
+    <% results.forEach(msg => {
+         const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
+         const isSent   = fromAddr === user.email.toLowerCase();
+         const toList   = msg.toRecipients?.map(r=>r.emailAddress.address).join(', ');
+    %>
+      <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
+        <div class="chat-bubble" title="To: <%= toList %>">
+          <div class="chat-header">
+            <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
+            <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
+            <span class="subject"><%= msg.subject || 'No subject' %></span>
           </div>
-        <% }) %>
+          <div class="chat-body"><%= msg.body.content %></div>
+        </div>
       </div>
-      <script>
-        document.addEventListener('DOMContentLoaded', function() {
-          document.querySelectorAll('.chat-meta small[data-time]').forEach(function(el) {
-            // Show relative time like "5 minutes ago"
-            el.textContent = moment(el.getAttribute('data-time')).fromNow();
-          });
-        });
-      </script>
-    <% } %>
-  <% } %>
+    <% }) %>
+  </div>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.time').forEach(el => {
+        el.textContent = moment(el.getAttribute('data-time')).fromNow();
+      });
+    });
+  </script>
 </body>
 </html>
