@@ -5,6 +5,8 @@
   <title>Server-Side Search Emails</title>
   <!-- Moment.js for date formatting -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <!-- DOMPurify for sanitizing HTML -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.4.0/purify.min.js"></script>
   <style>
     /* Base reset and typography */
     *, *::before, *::after { box-sizing: border-box; }
@@ -32,7 +34,6 @@
       max-width: 75%;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
       position: relative;
-      font-size: 0.9rem;
       overflow: hidden;
     }
     .chat-message.sent .chat-bubble { background: #d0e7ff; }
@@ -48,30 +49,37 @@
       border-bottom: 1px solid rgba(0,0,0,0.1);
       padding-bottom: 6px;
       margin-bottom: 8px;
-      cursor: default;
     }
-    .chat-header .time { flex-shrink: 0; }
     .chat-header .open-link {
       text-decoration: none;
       font-size: 1.1rem;
       color: #0079bf;
       opacity: 0.7;
-      flex-shrink: 0;
     }
     .chat-header .open-link:hover { opacity: 1; }
-    .chat-header .subject { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-header .time { white-space: nowrap; }
+    .chat-header .subject {
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-grow: 1;
+    }
 
-    /* Body of message */
+    /* Body of message styled for sanitized HTML */
     .chat-body {
       font-size: 0.8rem;
-      white-space: pre-wrap;
+      line-height: 1.4;
       max-height: 140px;
       overflow-y: auto;
-      line-height: 1.4;
     }
+    .chat-body p { margin: 0 0 0.5em; }
+    .chat-body ul, .chat-body ol { margin: 0.5em 0 0.5em 1em; }
+    .chat-body strong { font-weight: 600; }
+    .chat-body em { font-style: italic; }
+    .chat-body a { color: #006bb3; text-decoration: underline; }
     .chat-body::-webkit-scrollbar { width: 6px; }
     .chat-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
-
   </style>
 </head>
 <body>
@@ -84,19 +92,30 @@
       <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
         <div class="chat-bubble" title="To: <%= toList %>">
           <div class="chat-header">
-            <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
             <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
+            <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
             <span class="subject"><%= msg.subject || 'No subject' %></span>
           </div>
-          <div class="chat-body"><%= msg.body.content %></div>
+          <!-- Raw HTML stored in data-content, will be sanitized -->
+          <div class="chat-body" data-content="<%- msg.body.content.replace(/"/g, '&quot;') %>"></div>
         </div>
       </div>
     <% }) %>
   </div>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+      // Format timestamps
       document.querySelectorAll('.time').forEach(el => {
         el.textContent = moment(el.getAttribute('data-time')).fromNow();
+      });
+      // Sanitize and inject HTML
+      document.querySelectorAll('.chat-body').forEach(el => {
+        const raw = el.getAttribute('data-content') || '';
+        const clean = DOMPurify.sanitize(raw, {
+          ALLOWED_TAGS: ['p','b','i','em','strong','a','ul','ol','li','br'],
+          ALLOWED_ATTR: ['href','target','title']
+        });
+        el.innerHTML = clean;
       });
     });
   </script>
