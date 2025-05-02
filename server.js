@@ -60,23 +60,6 @@ async function fetchAllMessages(initialUrl, accessToken) {
 
 // ——— Authentication Middleware —————————————————————————————————
 
-// function ensureAuthenticated(req, res, next) {
-//   if (!req.session.user?.accessToken) {
-//     req.session.returnTo = req.originalUrl;
-//     return res.redirect("/auth");
-//   }
-//   next();
-// }
-// function ensureAuthenticated(req, res, next) {
-//   const hasToken = !!req.session.user?.accessToken;
-//   console.log(`✔️ ensureAuthenticated: hasToken=${hasToken}`);
-//   if (!hasToken) {
-//     console.log("↩️  redirecting to /auth from", req.originalUrl);
-//     req.session.returnTo = req.originalUrl;
-//     return res.redirect("/auth");
-//   }
-//   next();
-// }
 async function ensureAuthenticated(req, res, next) {
   const user = req.session.user;
   // if we’ve never logged in or have no refresh token, force interactive
@@ -166,7 +149,7 @@ app.set("view engine", "ejs");
 app.set("views", __dirname + "/views");
 
 // Mount Dialpad routes under a unique prefix to avoid collisions:
-app.use('/dialpad', dialpadRouter);
+app.use('/dialpad', ensureAuthenticated, dialpadRouter);
 
 // ——— OAuth ——————————————————————————————————————————————
 
