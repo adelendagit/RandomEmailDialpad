@@ -7,7 +7,7 @@ const cheerio = require("cheerio");
 const FileStore = require('session-file-store')(session);
 const cors = require('cors');
 const dialpadRouter = require('./dialpadRoutes');
-
+const emailRouter = require('./emailRoutes');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -150,6 +150,8 @@ app.set("views", __dirname + "/views");
 
 // Mount Dialpad routes under a unique prefix to avoid collisions:
 app.use('/dialpad', ensureAuthenticated, dialpadRouter);
+
+app.use('/email', ensureAuthenticated, emailRouter);
 
 // ——— OAuth ——————————————————————————————————————————————
 
