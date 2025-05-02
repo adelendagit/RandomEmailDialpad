@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Server-Side Search Emails</title>
+  <!-- Moment.js for date formatting -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.4/moment.min.js"></script>
+  <!-- DOMPurify for sanitizing HTML -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/2.4.0/purify.min.js"></script>
+  <style>
+    /* Base reset and typography */
+    *, *::before, *::after { box-sizing: border-box; }
+    html { font-size: 14px; }
+    body {
+      font-family: sans-serif;
+      font-size: 0.9rem;
+      line-height: 1.4;
+      max-width: 700px;
+      margin: 1.5em auto;
+      padding: 0 0.5em;
+      background: #f9f9f9;
+      color: #333;
+    }
+
+    /* Chat thread styling */
+    .chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 15px 0; }
+    .chat-message { display: flex; width: 100%; }
+    .chat-message.sent { justify-content: flex-end; }
+    .chat-message.received { justify-content: flex-start; }
+    .chat-bubble {
+      background: #f1f9fd;
+      padding: 10px 14px;
+      border-radius: 16px;
+      max-width: 75%;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      position: relative;
+      overflow: hidden;
+    }
+    .chat-message.sent .chat-bubble { background: #d0e7ff; }
+    .chat-message.received .chat-bubble { background: #f7f7f7; }
+
+    /* Header inside bubble - separate background */
+    .chat-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.8rem;
+      color: #555;
+      background: rgba(0,0,0,0.1);
+      padding: 6px 10px;
+      position: relative;
+      margin: -10px -14px 8px -14px;
+      border-top-left-radius: 16px;
+      border-top-right-radius: 16px;
+    }
+    .chat-header .open-link {
+      text-decoration: none;
+      font-size: 1.1rem;
+      color: #0079bf;
+      opacity: 0.7;
+      flex-shrink: 0;
+    }
+    .chat-header .open-link:hover { opacity: 1; }
+    .chat-header .time { white-space: nowrap; flex-shrink: 0; }
+    .chat-header .subject {
+      font-weight: 500;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      flex-grow: 1;
+    }
+
+    /* Body of message styled for sanitized HTML */
+    .chat-body {
+      font-size: 0.8rem;
+      line-height: 1.4;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+    .chat-body p, .chat-body div { margin: 0 0 0.3em; }
+    .chat-body ul, .chat-body ol { margin: 0.3em 0 0.3em 1em; }
+    .chat-body strong { font-weight: 600; }
+    .chat-body em { font-style: italic; }
+    .chat-body a { color: #006bb3; text-decoration: underline; }
+    .chat-body br { display: block; margin: 0.3em 0; }
+    .chat-body::-webkit-scrollbar { width: 6px; }
+    .chat-body::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
+
+    /* “No messages” state */
+    .no-messages {
+      text-align: center;
+      color: #666;
+      margin: 2em 0;
+    }
+    .no-messages .compose-link {
+      display: inline-block;
+      margin-top: 0.5em;
+      padding: 0.6em 1em;
+      background: #0079bf;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    .no-messages .compose-link:hover {
+      background: #005a8c;
+    }
+  </style>
+</head>
+<body>
+  <div class="chat-thread">
+    <% if (!results || results.length === 0) { %>
+      <div class="no-messages">
+        <p>No messages found.</p>
+      </div>
+    <% } else { %>
+      <% results.forEach(msg => {
+           const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
+           const isSent   = fromAddr === user.email.toLowerCase();
+           const toList   = msg.toRecipients?.map(r=>r.emailAddress.address).join(', ');
+      %>
+        <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
+          <div class="chat-bubble" title="To: <%= toList %>">
+            <div class="chat-header">
+              <a href="<%= msg.webLink %>" target="_blank" class="open-link" title="Open in Outlook">✉️</a>
+              <span class="time" data-time="<%= msg.receivedDateTime %>"></span>
+              <span class="subject"><%= msg.subject || 'No subject' %></span>
+            </div>
+            <div class="chat-body" data-content="<%- msg.body.content.replace(/\"/g, '&quot;') %>"></div>
+          </div>
+        </div>
+      <% }) %>
+    <% } %>
+  </div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      // Format timestamps
+      document.querySelectorAll('.time').forEach(el => {
+        el.textContent = moment(el.getAttribute('data-time')).fromNow();
+      });
+      // Sanitize and inject HTML
+      document.querySelectorAll('.chat-body').forEach(el => {
+        let raw = el.getAttribute('data-content') || '';
+        let clean = DOMPurify.sanitize(raw, {
+          ALLOWED_TAGS: ['p','div','b','i','em','strong','a','ul','ol','li','br'],
+          ALLOWED_ATTR: ['href','target','title']
+        });
+        // Flatten paragraphs to single breaks
+        clean = clean
+          .replace(/<div[^>]*>/g, '<p>')
+          .replace(/<\/div>/g, '</p>')
+          .replace(/<\/p>\s*<p>/g, '<br>')
+          .replace(/<p[^>]*>/g, '')
+          .replace(/<\/p>/g, '')
+          .replace(/(<br>\s*){2,}/g, '<br>');
+        el.innerHTML = clean;
+      });
+    });
+  </script>
+</body>
+</html>
