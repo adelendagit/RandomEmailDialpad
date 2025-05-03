@@ -130,7 +130,8 @@ app.use(
 // list all the origins you want to allow
 const allowedOrigins = [
   'https://trello.com',
-  'https://hotspotsuk.co.uk'
+  'https://hotspotsuk.co.uk',
+  'https://brassy-jelly-knife.glitch.me/'
 ];
 
 app.use(cors({

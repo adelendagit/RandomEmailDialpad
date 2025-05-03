@@ -30,7 +30,6 @@ const router = express.Router();
 
 // GET /email/history?email=<emailAddress>&subject=<optional>
 // Renders view of email interactions across specified mailboxes
-
 router.get('/history', async (req, res) => {
   try {
     const targetEmail = (req.query.email || '').trim().toLowerCase();
@@ -38,7 +37,7 @@ router.get('/history', async (req, res) => {
 
     // Render empty form if no email provided
     if (!targetEmail) {
-      return res.render('email-history', {
+      return res.render('search-email-server-search', {
         user: req.session.user,
         results: null,
         query: '',
@@ -62,17 +61,15 @@ router.get('/history', async (req, res) => {
       ConsistencyLevel: 'eventual'
     };
 
-    let allResults = [];
-
-    // Query each mailbox
-    for (const mailbox of mailboxes) {
+    // Perform queries in parallel
+    const mailboxPromises = mailboxes.map(async (mailbox) => {
       const url =
         `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(mailbox)}/messages` +
         `?$search=${encodeURIComponent(clause)}` +
         `&$count=true&$top=50`;
       try {
         const resp = await axios.get(url, { headers });
-        const msgs = resp.data.value
+        return resp.data.value
           .filter(m => !m.isDraft)
           .map(m => ({
             mailbox,
@@ -84,15 +81,17 @@ router.get('/history', async (req, res) => {
             webLink: m.webLink,
             body: { content: stripQuotedText(m.body.content || '') }
           }));
-        allResults.push(...msgs);
       } catch (err) {
         if (err.response?.status === 403) {
           console.warn(`Skipping ${mailbox}: no access`);
-          continue;
+          return [];
         }
         throw err;
       }
-    }
+    });
+
+    const resultsByMailbox = await Promise.all(mailboxPromises);
+    let allResults = resultsByMailbox.flat();
 
     // Sort newest first and apply optional subject filter again if needed
     allResults.sort((a, b) => new Date(b.receivedDateTime) - new Date(a.receivedDateTime));
@@ -101,7 +100,7 @@ router.get('/history', async (req, res) => {
     }
 
     // Render results
-    res.render('email-history', {
+    res.render('search-email-server-search', {
       user: req.session.user,
       results: allResults,
       query: targetEmail,
