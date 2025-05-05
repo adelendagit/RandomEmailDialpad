@@ -70,7 +70,7 @@ async function fetchAllUsers() {
   } while (cursor);
 
   console.log(`[fetchAllUsers] total users = ${users.length}`);
-  console.log(users);
+  //console.log(users);
   return users;
 }
 
@@ -89,10 +89,10 @@ router.get('/history/all', async (req, res) => {
     for (const u of allUsers) {
       console.log(`[route /history/all] fetching for user ${u.id}`);
       const [calls, texts] = await Promise.all([
-        //fetchStats(u.id, 'calls', days),
-        //fetchStats(u.id, 'texts', days)
-        fetchStats('5844334042251264', 'calls', days),
-        fetchStats('5844334042251264', 'texts', days)
+        fetchStats(u.id, 'calls', days),
+        fetchStats(u.id, 'texts', days)
+        // fetchStats('5844334042251264', 'calls', days),
+        // fetchStats('5844334042251264', 'texts', days)
         
       ]);
 
