@@ -37,7 +37,7 @@ router.get('/history', async (req, res) => {
 
     // Render empty form if no email provided
     if (!targetEmail) {
-      return res.render('search-email-server-search', {
+      return res.render('email-history', {
         user: req.session.user,
         results: null,
         query: '',
@@ -100,7 +100,7 @@ router.get('/history', async (req, res) => {
     }
 
     // Render results
-    res.render('search-email-server-search', {
+    res.render('email-history', {
       user: req.session.user,
       results: allResults,
       query: targetEmail,
