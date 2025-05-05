@@ -25,7 +25,7 @@ async function fetchStats(userId, statType, days = 30) {
   });
   const requestId = post.id || post.request_id;
   let statusRes;
-  for (let i = 1; i <= 10; i++) {
+  for (let i = 1; i <= 5; i++) {
     statusRes = (await DIALPAD_API.get(`/stats/${requestId}`)).data;
     console.log(`  poll#${i}: ${statusRes.status}`);
     if (['complete','completed'].includes(statusRes.status)) break;
