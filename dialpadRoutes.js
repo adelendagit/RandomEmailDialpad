@@ -109,8 +109,10 @@ router.get('/history/all', async (req, res) => {
 
 // full history
 router.get('/history/:userId', async (req, res) => {
+  console.log('/history/:userId called')
   try {
     const userId = req.params.userId;
+    console.log(userId);
     const days   = parseInt(req.query.days)||30;
     const [calls, texts] = await Promise.all([
       fetchStats(userId,'calls',days),
