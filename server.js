@@ -162,7 +162,7 @@ app.get("/auth", (req, res) => {
     response_type: "code",
     redirect_uri: process.env.REDIRECT_URI,
     response_mode: "query",
-    scope: "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+    scope: "openid profile User.Read Mail.Read Mail.Read.Shared Mail.Send offline_access Sites.Read.All",
     state: "12345"
   });
   res.redirect(
@@ -178,7 +178,7 @@ app.get("/auth/callback", async (req, res) => {
       `https://login.microsoftonline.com/${process.env.TENANT_ID}/oauth2/v2.0/token`,
       qs.stringify({
         client_id:     process.env.CLIENT_ID,
-        scope:         "openid profile User.Read Mail.Read Mail.Send offline_access Sites.Read.All",
+        scope:         "openid profile User.Read Mail.Read Mail.Read.Shared Mail.Send offline_access Sites.Read.All",
         code,
         redirect_uri:  process.env.REDIRECT_URI,
         grant_type:    "authorization_code",
