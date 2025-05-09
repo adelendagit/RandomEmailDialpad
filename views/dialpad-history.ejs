@@ -160,6 +160,10 @@
     </div>
     <input name="days" type="hidden" value="<%= days %>">
   </form>
+  <script>
+    // "messages" is the same array you passed in from Express
+    console.log('Rendered Dialpad messages:', <%- JSON.stringify(messages) %>);
+  </script>
 
   <div class="chat-thread">
     <% if (messages.length === 0) { %>

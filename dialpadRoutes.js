@@ -211,6 +211,7 @@ router.get('/history/view', async (req, res) => {
         return { user: u, calls, texts };
       })
     );
+    
 
     // 3) filter + normalize into a flat array
     const messages = [];
@@ -237,6 +238,7 @@ router.get('/history/view', async (req, res) => {
           normalize(t.from_phone) === target ||
           normalize(t.to_phone)   === target
         ) {
+          console.log(t);
           messages.push({
             type:      'text',
             id:        t.id,
@@ -245,14 +247,14 @@ router.get('/history/view', async (req, res) => {
                          ? t.to_phone 
                          : t.from_phone,
             time:      toISO(t.date),                             // ← use `date`
-            body:      t.body || t.text
+            body:      t.encrypted_aes_text || t.body || t.text
           });
         }
       });
     });
 
-    // 4) sort oldest → newest
-    messages.sort((a, b) => new Date(a.time) - new Date(b.time));
+    // 4) sort newest → oldest
+    messages.sort((a, b) => new Date(b.time) - new Date(a.time));
 
     // 5) render into the EJS view
     res.render('dialpad-history', {
