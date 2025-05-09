@@ -115,7 +115,10 @@
     <% } else { %>
       <% results.forEach(msg => {
            const fromAddr = (msg.from?.emailAddress?.address || '').toLowerCase();
-           const isSent   = fromAddr === user.email.toLowerCase();
+           //const isSent   = fromAddr === user.email.toLowerCase();
+            // if the sender is the mailbox owner, it’s one of our “sent” bubbles
+            const mailboxAddr = (msg.mailbox || '').toLowerCase();
+            const isSent      = fromAddr === mailboxAddr;
            const toList   = msg.toRecipients?.map(r=>r.emailAddress.address).join(', ');
       %>
         <div class="chat-message <%= isSent ? 'sent' : 'received' %>">
