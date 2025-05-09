@@ -84,6 +84,8 @@ router.get('/history', async (req, res) => {
       } catch (err) {
         if (err.response?.status === 403) {
           console.warn(`Skipping ${mailbox}: no access`);
+          console.error(`error: ${err}`);
+          console.error('Graph error details:', err.response?.data);
           return [];
         }
         throw err;
