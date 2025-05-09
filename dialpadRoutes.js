@@ -1,8 +1,11 @@
 // dialpadRoutes.js
 require('dotenv').config();
 const express = require('express');
+const router  = express.Router();
 const axios = require('axios');
 const csv = require('csvtojson');
+
+const normalize = n => n ? n.toString().replace(/[^0-9+]/g, '') : '';
 
 const DIALPAD_API = axios.create({
   baseURL: 'https://dialpad.com/api/v2',
@@ -73,8 +76,6 @@ async function fetchAllUsers() {
   //console.log(users);
   return users;
 }
-
-const router = express.Router();
 
 // GET /history/all?days=30
 // Returns { users: [ { id, name, callHistory, chatHistory }, … ] }
@@ -173,5 +174,90 @@ router.get('/transcripts/:callId', async (req, res) => {
   }
 });
 
+// NEW: GET /history/view?phone=…&days=…
+router.get('/history/view', async (req, res) => {
+  try {
+    const rawPhone = (req.query.phone || '').trim();
+    const target   = normalize(rawPhone);
+    const days     = parseInt(req.query.days, 10) || 30;
+
+    // If no phone, just render empty form
+    if (!target) {
+      return res.render('dialpad-history', {
+        user:   req.session.user,
+        query:  '',    // for the input value
+        days,
+        messages: []
+      });
+    }
+
+    // 1) fetch users
+    const allUsers = await fetchAllUsers();
+
+    // 2) for each user, in parallel, pull calls+texts
+    const rawResults = await Promise.all(
+      allUsers.map(async u => {
+        const [calls, texts] = await Promise.all([
+          fetchStats(u.id, 'calls', days),
+          fetchStats(u.id, 'texts', days)
+        ]);
+        return { user: u, calls, texts };
+      })
+    );
+
+    // 3) filter + normalize into a flat array
+    const messages = [];
+    rawResults.forEach(({ user, calls, texts }) => {
+      calls.forEach(c => {
+        if (
+          normalize(c.external_number) === target ||
+          normalize(c.internal_number) === target
+        ) {
+          messages.push({
+            type:      'call',
+            id:        c.id || c.call_id,
+            direction: c.direction,                // 'inbound' | 'outbound'
+            phone:     normalize(c.external_number) === target 
+                         ? c.internal_number 
+                         : c.external_number,
+            time:      c.start_time || c.timestamp,
+            duration:  c.duration_seconds || c.duration
+          });
+        }
+      });
+      texts.forEach(t => {
+        if (
+          normalize(t.from_phone) === target ||
+          normalize(t.to_phone)   === target
+        ) {
+          messages.push({
+            type:      'text',
+            id:        t.id,
+            direction: t.direction,
+            phone:     normalize(t.from_phone) === target 
+                         ? t.to_phone 
+                         : t.from_phone,
+            time:      t.timestamp || t.created_at,
+            body:      t.body || t.text
+          });
+        }
+      });
+    });
+
+    // 4) sort oldest → newest
+    messages.sort((a, b) => new Date(a.time) - new Date(b.time));
+
+    // 5) render into the EJS view
+    res.render('dialpad-history', {
+      user:     req.session.user,
+      query:    rawPhone,
+      days,
+      messages
+    });
+  } catch (err) {
+    console.error('Dialpad history error:', err);
+    res.status(500).send('Failed to fetch Dialpad history');
+  }
+});
 
 module.exports = router;
