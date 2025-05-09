@@ -83,27 +83,21 @@ router.get('/history/all', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 30;
     const allUsers = await fetchAllUsers();
-    const results = [];
-
-    // You may want to throttle or batch these in production
-    for (const u of allUsers) {
-      console.log(`[route /history/all] fetching for user ${u.id}`);
+    
+    const userPromises = allUsers.map(async u => {
       const [calls, texts] = await Promise.all([
         fetchStats(u.id, 'calls', days),
         fetchStats(u.id, 'texts', days)
-        // fetchStats('5844334042251264', 'calls', days),
-        // fetchStats('5844334042251264', 'texts', days)
-        
       ]);
-
-      results.push({
+      return {
         id:          u.id,
         name:        u.name,
         email:       u.email,
         callHistory: calls,
         chatHistory: texts
-      });
-    }
+      };
+    });
+    const results = await Promise.all(userPromises);
 
     res.json({ users: results });
   } catch (err) {
@@ -112,23 +106,6 @@ router.get('/history/all', async (req, res) => {
   }
 });
 
-// full history
-// router.get('/history/:userId', async (req, res) => {
-//   console.log('/history/:userId called')
-//   try {
-//     const userId = req.params.userId;
-//     console.log(userId);
-//     const days   = parseInt(req.query.days)||30;
-//     const [calls, texts] = await Promise.all([
-//       fetchStats(userId,'calls',days),
-//       fetchStats(userId,'texts',days)
-//     ]);
-//     res.json({ callHistory: calls, chatHistory: texts });
-//   } catch(err) {
-//     console.error(err);
-//     res.status(500).json({ error: err.message });
-//   }
-// });
 
 // GET /history/all/with/:contactNumber?days=30
 // Returns only users who’ve interacted with that number, and only the matching records
@@ -182,34 +159,6 @@ router.get('/history/all/with/:contactNumber', async (req, res) => {
   }
 });
 
-// per-contact history
-// router.get('/history/:userId/with/:contactNumber', async (req, res) => {
-//   try {
-//     const { userId, contactNumber } = req.params;
-//     const days = parseInt(req.query.days)||30;
-//     const [allCalls, allTexts] = await Promise.all([
-//       fetchStats(userId,'calls',days),
-//       fetchStats(userId,'texts',days)
-//     ]);
-
-//     const normalize = n => n? n.toString().replace(/[^0-9+]/g,'') : '';
-//     const target = normalize(contactNumber);
-
-//     const calls = allCalls.filter(c=>
-//       normalize(c.external_number)===target ||
-//       normalize(c.internal_number)  ===target
-//     );
-//     const texts = allTexts.filter(t=>
-//       normalize(t.from_phone)===target ||
-//       normalize(t.to_phone)  ===target
-//     );
-
-//     res.json({ calls, texts });
-//   } catch(err) {
-//     console.error(err);
-//     res.status(500).json({ error: err.message });
-//   }
-// });
 
 // GET  /transcripts/:callId
 // Proxy to Dialpad’s /transcripts/{call_id} endpoint
