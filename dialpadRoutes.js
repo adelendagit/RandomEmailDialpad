@@ -242,7 +242,7 @@ router.get('/history/view', async (req, res) => {
           messages.push({
             type:      'text',
             id:        t.id,
-            direction: t.direction,
+            direction: t.direction === 'internal' ? 'outbound' : 'inbound',
             phone:     normalize(t.from_phone) === target 
                          ? t.to_phone 
                          : t.from_phone,
