@@ -21,6 +21,48 @@
       background: #f9f9f9;
       color: #333;
     }
+    
+    /* Container styled as a pill */
+    .subject-pill {
+      display: inline-flex;
+      align-items: center;
+      background: #0079bf;
+      border-radius: 999px;
+      padding: 0.2em 0.5em;
+      max-width: 100%;
+    }
+
+    /* The input looks “invisible” but clickable */
+    .subject-pill input {
+      background: transparent;
+      border: none;
+      color: #fff;
+      padding: 0.2em 0.4em;
+      font-size: 0.9rem;
+      width: <%= subject ? 'auto' : '8ch' %>; /* grow if there’s text */
+      min-width: 4ch;
+      outline: none;
+    }
+
+    /* Placeholder style */
+    .subject-pill input::placeholder {
+      color: rgba(255,255,255,0.7);
+    }
+
+    /* Clear “×” button inside pill */
+    .subject-pill button {
+      background: transparent;
+      border: none;
+      color: #fff;
+      font-size: 1rem;
+      line-height: 1;
+      margin-left: 0.2em;
+      cursor: pointer;
+    }
+    .subject-pill button:hover {
+      opacity: 0.8;
+    }
+
 
     /* Chat thread styling */
     .chat-thread { display: flex; flex-direction: column; gap: 12px; padding: 15px 0; }
@@ -107,6 +149,25 @@
   </style>
 </head>
 <body>
+    <form id="subject-filter" action="/email/history" method="get">
+      <input type="hidden" name="email" value="<%= query %>">
+
+      <!-- Editable subject pill -->
+      <div class="subject-pill">
+        <input
+          id="subject-input"
+          name="subject"
+          type="text"
+          placeholder="Subject…"
+          value="<%= subject %>"
+          autocomplete="off"
+        />
+        <% if (subject) { %>
+          <button type="button" id="clear-subject" aria-label="Clear filter">×</button>
+        <% } %>
+      </div>
+    </form>
+
   <div class="chat-thread">
     <% if (!results || results.length === 0) { %>
       <div class="no-messages">
@@ -159,5 +220,29 @@
       });
     });
   </script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const form       = document.getElementById('subject-filter');
+      const input      = document.getElementById('subject-input');
+      const clearBtn   = document.getElementById('clear-subject');
+
+      // Submit on Enter
+      input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          form.submit();
+        }
+      });
+
+      // Clear filter when × clicked
+      if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+          input.value = '';
+          form.submit();
+        });
+      }
+    });
+  </script>
+
 </body>
 </html>
