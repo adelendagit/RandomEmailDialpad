@@ -2,54 +2,18 @@
 require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
-const axiosRetry = require('axios-retry');
-// Dynamic import wrapper for p-map (ESM-only)
-const pMap = async (iterable, mapper, options) => {
-  const mod = await import('p-map');
-  return mod.default(iterable, mapper, options);
-};
-
 const csv = require('csvtojson');
-const LRU = require('lru-cache');
 
-// Configure Dialpad API client
 const DIALPAD_API = axios.create({
   baseURL: 'https://dialpad.com/api/v2',
-  timeout: 120000, // 2 minutes
   headers: {
     Authorization: `Bearer ${process.env.DIALPAD_BEARER_TOKEN}`,
     'Content-Type': 'application/json'
   }
 });
 
-// Retry on network errors or 429s
-axiosRetry(DIALPAD_API, {
-  retries: 3,
-  retryDelay: axiosRetry.exponentialDelay,
-  retryCondition: err => axiosRetry.isNetworkOrIdempotentRequestError(err) || err.response?.status === 429
-});
-
-// In-memory cache for stats
-const statsCache = new LRU({ max: 500, maxAge: 1000 * 60 * 60 }); // 1 hour
-
-// Poll the stats status until complete, with exponential backoff
-async function pollStats(requestId, maxAttempts = 8) {
-  let attempt = 0;
-  while (attempt++ < maxAttempts) {
-    const { data } = await DIALPAD_API.get(`/stats/${requestId}`);
-    if (['complete', 'completed'].includes(data.status)) return data;
-    await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 500 + Math.random() * 500));
-  }
-  throw new Error(`Stats request ${requestId} did not complete after ${maxAttempts} attempts`);
-}
-
-// Fetch call/text stats for a user, with caching and streaming CSV parse
 async function fetchStats(userId, statType, days = 30) {
-  const cacheKey = `${userId}:${statType}:${days}`;
-  if (statsCache.has(cacheKey)) {
-    return statsCache.get(cacheKey);
-  }
-
+  console.log(`[fetchStats] ${statType} for user=${userId} (${days}d)`);
   const { data: post } = await DIALPAD_API.post('/stats', {
     export_type: 'records',
     stat_type: statType,
@@ -60,66 +24,86 @@ async function fetchStats(userId, statType, days = 30) {
     timezone: 'UTC'
   });
   const requestId = post.id || post.request_id;
-  const status = await pollStats(requestId);
-
-  const response = await axios.get(status.download_url, { responseType: 'stream', timeout: 180000 });
-  const parser = csv({ trim: true }).fromStream(response.data);
-
-  const records = [];
-  for await (const rec of parser) {
-    records.push(rec);
+  let statusRes;
+  for (let i = 1; i <= 5; i++) {
+    statusRes = (await DIALPAD_API.get(`/stats/${requestId}`)).data;
+    console.log(`  poll#${i}: ${statusRes.status}`);
+    if (['complete','completed'].includes(statusRes.status)) break;
+    await new Promise(r => setTimeout(r, 5000));
   }
-
-  statsCache.set(cacheKey, records);
+  if (!['complete','completed'].includes(statusRes.status)) {
+    throw new Error(`Stats[${statType}] timed out (${statusRes.status})`);
+  }
+  const csvText = (await axios.get(statusRes.download_url)).data;
+  const records = await csv().fromString(csvText);
+  console.log(`  got ${records.length} ${statType} records`);
   return records;
 }
 
-// Fetch full JSON transcript for a call
+// returns the JSON transcript (including “moments”) for a call
 async function fetchTranscript(callId) {
+  console.log(`[fetchTranscript] callId=${callId}`);
   const { data } = await DIALPAD_API.get(`/transcripts/${callId}`);
   return data;
 }
 
-// Fetch all users, paging via cursor
+// fetchAllUsers: returns an array of user objects ({ id, name, email, … })
+// returns an array of all users, paging via the `cursor` field
+// Helper: list all users, paging via the `cursor` field and reading `items[]`
 async function fetchAllUsers() {
-  let users = [];
+  let users  = [];
   let cursor = null;
 
   do {
+    console.log(`[fetchAllUsers] fetching cursor=${cursor}`);
     const params = { limit: 100 };
     if (cursor) params.cursor = cursor;
+
     const resp = await DIALPAD_API.get('/users', { params });
     const data = resp.data;
-    if (Array.isArray(data.items)) {
-      users.push(...data.items);
-    }
-    cursor = data.cursor;
+
+    // this API returns { items: [...], cursor: "…" }
+    const batch = Array.isArray(data.items) ? data.items : [];
+    users.push(...batch);
+
+    cursor = data.cursor;    // loop until no more cursor
   } while (cursor);
 
+  console.log(`[fetchAllUsers] total users = ${users.length}`);
+  //console.log(users);
   return users;
 }
 
 const router = express.Router();
 
 // GET /history/all?days=30
-// Returns all users with their call and text histories
+// Returns { users: [ { id, name, callHistory, chatHistory }, … ] }
 router.get('/history/all', async (req, res) => {
+  console.log('/history/all called')
   try {
-    const days = parseInt(req.query.days, 10) || 30;
+    const days = parseInt(req.query.days) || 30;
     const allUsers = await fetchAllUsers();
-
     const results = [];
-    await pMap(allUsers, async u => {
-      try {
-        const [calls, texts] = await Promise.all([
-          fetchStats(u.id, 'calls', days),
-          fetchStats(u.id, 'texts', days)
-        ]);
-        results.push({ id: u.id, name: u.name, email: u.email, callHistory: calls, chatHistory: texts });
-      } catch (err) {
-        console.error(`User ${u.id} failed:`, err.message);
-      }
-    }, { concurrency: 5 });
+
+    // You may want to throttle or batch these in production
+    for (const u of allUsers) {
+      console.log(`[route /history/all] fetching for user ${u.id}`);
+      const [calls, texts] = await Promise.all([
+        fetchStats(u.id, 'calls', days),
+        fetchStats(u.id, 'texts', days)
+        // fetchStats('5844334042251264', 'calls', days),
+        // fetchStats('5844334042251264', 'texts', days)
+        
+      ]);
+
+      results.push({
+        id:          u.id,
+        name:        u.name,
+        email:       u.email,
+        callHistory: calls,
+        chatHistory: texts
+      });
+    }
 
     res.json({ users: results });
   } catch (err) {
@@ -127,59 +111,118 @@ router.get('/history/all', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// full history
+// router.get('/history/:userId', async (req, res) => {
+//   console.log('/history/:userId called')
+//   try {
+//     const userId = req.params.userId;
+//     console.log(userId);
+//     const days   = parseInt(req.query.days)||30;
+//     const [calls, texts] = await Promise.all([
+//       fetchStats(userId,'calls',days),
+//       fetchStats(userId,'texts',days)
+//     ]);
+//     res.json({ callHistory: calls, chatHistory: texts });
+//   } catch(err) {
+//     console.error(err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
 
 // GET /history/all/with/:contactNumber?days=30
-// Returns only users who've interacted with the given number
+// Returns only users who’ve interacted with that number, and only the matching records
 router.get('/history/all/with/:contactNumber', async (req, res) => {
   try {
-    const days = parseInt(req.query.days, 10) || 30;
-    const normalize = n => n ? n.toString().replace(/[^0-9+]/g, '') : '';
-    const target = normalize(req.params.contactNumber);
+    const days          = parseInt(req.query.days) || 30;
+    const contactNumber = req.params.contactNumber;
+    const normalize     = n => n ? n.toString().replace(/[^0-9+]/g, '') : '';
+    const target        = normalize(contactNumber);
 
-    const allUsers = await fetchAllUsers();
-    const results = [];
+    console.log(`[route /history/all/with] contact=${contactNumber}, days=${days}`);
 
-    await pMap(allUsers, async u => {
-      try {
-        const [calls, texts] = await Promise.all([
-          fetchStats(u.id, 'calls', days),
-          fetchStats(u.id, 'texts', days)
-        ]);
+    const allUsers = await fetchAllUsers();    // as defined previously
+    const results  = [];
 
-        const callsWith = calls.filter(c =>
-          normalize(c.external_number) === target ||
-          normalize(c.internal_number) === target
-        );
-        const textsWith = texts.filter(t =>
-          normalize(t.from_phone) === target ||
-          normalize(t.to_phone) === target
-        );
+    for (const u of allUsers) {
+      console.log(`  checking user ${u.id}`);
+      const [calls, texts] = await Promise.all([
+        fetchStats(u.id, 'calls', days),
+        fetchStats(u.id, 'texts', days)
+      ]);
 
-        if (callsWith.length || textsWith.length) {
-          results.push({ id: u.id, name: u.name, email: u.email, callHistory: callsWith, chatHistory: textsWith });
-        }
-      } catch (err) {
-        console.error(`User ${u.id} filter failed:`, err.message);
+      // filter each user’s arrays
+      const callsWithContact = calls.filter(c =>
+        normalize(c.external_number) === target ||
+        normalize(c.internal_number)   === target
+      );
+      const textsWithContact = texts.filter(t =>
+        normalize(t.from_phone) === target ||
+        normalize(t.to_phone)   === target
+      );
+
+      // only include users who have at least one interaction
+      if (callsWithContact.length || textsWithContact.length) {
+        results.push({
+          id:          u.id,
+          name:        u.name,
+          email:       u.email,
+          callHistory: callsWithContact,
+          chatHistory: textsWithContact
+        });
       }
-    }, { concurrency: 5 });
+    }
 
+    console.log(`[route /history/all/with] found ${results.length} users with interactions`);
     res.json({ users: results });
-  } catch (err) {
+  }
+  catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /transcripts/:callId
-// Proxy to Dialpad's transcript endpoint
+// per-contact history
+// router.get('/history/:userId/with/:contactNumber', async (req, res) => {
+//   try {
+//     const { userId, contactNumber } = req.params;
+//     const days = parseInt(req.query.days)||30;
+//     const [allCalls, allTexts] = await Promise.all([
+//       fetchStats(userId,'calls',days),
+//       fetchStats(userId,'texts',days)
+//     ]);
+
+//     const normalize = n => n? n.toString().replace(/[^0-9+]/g,'') : '';
+//     const target = normalize(contactNumber);
+
+//     const calls = allCalls.filter(c=>
+//       normalize(c.external_number)===target ||
+//       normalize(c.internal_number)  ===target
+//     );
+//     const texts = allTexts.filter(t=>
+//       normalize(t.from_phone)===target ||
+//       normalize(t.to_phone)  ===target
+//     );
+
+//     res.json({ calls, texts });
+//   } catch(err) {
+//     console.error(err);
+//     res.status(500).json({ error: err.message });
+//   }
+// });
+
+// GET  /transcripts/:callId
+// Proxy to Dialpad’s /transcripts/{call_id} endpoint
 router.get('/transcripts/:callId', async (req, res) => {
   try {
-    const transcript = await fetchTranscript(req.params.callId);
+    const { callId } = req.params;
+    const transcript = await fetchTranscript(callId);
     res.json(transcript);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message });
   }
 });
+
 
 module.exports = router;

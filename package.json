@@ -22,8 +22,7 @@
     "fastify": "^5.3.2",
     "handlebars": "^4.7.8",
     "session-file-store": "^1.5.0",
-    "p-map": "7.0.3",
-    "lru-cache": 
+    "p-map": "7.0.3"
   },
   "engines": {
     "node": "16.x"
