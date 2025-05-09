@@ -6,6 +6,12 @@ const axios = require('axios');
 const csv = require('csvtojson');
 
 const normalize = n => n ? n.toString().replace(/[^0-9+]/g, '') : '';
+// helper: turn "2025-05-07 09:31:32.049899" → "2025-05-07T09:31:32.049899Z"
+function toISO(s) {
+  if (!s) return null;
+  const t = s.replace(' ', 'T');
+  return t.endsWith('Z') ? t : t + 'Z';
+}
 
 const DIALPAD_API = axios.create({
   baseURL: 'https://dialpad.com/api/v2',
@@ -40,6 +46,7 @@ async function fetchStats(userId, statType, days = 30) {
   const csvText = (await axios.get(statusRes.download_url)).data;
   const records = await csv().fromString(csvText);
   console.log(`  got ${records.length} ${statType} records`);
+  //console.log(records);
   return records;
 }
 
@@ -220,8 +227,8 @@ router.get('/history/view', async (req, res) => {
             phone:     normalize(c.external_number) === target 
                          ? c.internal_number 
                          : c.external_number,
-            time:      c.start_time || c.timestamp,
-            duration:  c.duration_seconds || c.duration
+            time:      toISO(c.date_started),                     // ← use `date_started`
+            duration:  c.talk_duration                             // seconds
           });
         }
       });
@@ -237,7 +244,7 @@ router.get('/history/view', async (req, res) => {
             phone:     normalize(t.from_phone) === target 
                          ? t.to_phone 
                          : t.from_phone,
-            time:      t.timestamp || t.created_at,
+            time:      toISO(t.date),                             // ← use `date`
             body:      t.body || t.text
           });
         }
