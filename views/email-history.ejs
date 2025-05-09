@@ -41,7 +41,7 @@
       padding: 0.2em 0.4em;
       font-size: 0.9rem;
       width: auto;
-      min-width: 12ch;            /* enough room for placeholder */
+      min-width: 16ch;            /* enough room for placeholder */
       outline: none;
     }
 
@@ -153,6 +153,7 @@
     <form id="filters" action="/email/history" method="get">
       <!-- Email filter pill -->
       <div class="filter-pill">
+        <span class="pill-icon" aria-hidden="true">📧</span>
         <input
           id="email-input"
           name="email"
@@ -168,6 +169,7 @@
 
       <!-- Subject filter pill -->
       <div class="filter-pill">
+        <span class="pill-icon" aria-hidden="true">🏷️</span>
         <input
           id="subject-input"
           name="subject"
@@ -236,27 +238,40 @@
   </script>
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      const form       = document.getElementById('subject-filter');
-      const input      = document.getElementById('subject-input');
-      const clearBtn   = document.getElementById('clear-subject');
+      const form            = document.getElementById('filters');
+      const emailInput      = document.getElementById('email-input');
+      const clearEmailBtn   = document.getElementById('clear-email');
+      const subjectInput    = document.getElementById('subject-input');
+      const clearSubjectBtn = document.getElementById('clear-subject');
 
-      // Submit on Enter
-      input.addEventListener('keydown', e => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          form.submit();
-        }
+      // On Enter in either input, submit the form
+      [emailInput, subjectInput].forEach(input => {
+        input.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            form.submit();
+          }
+        });
       });
 
-      // Clear filter when × clicked
-      if (clearBtn) {
-        clearBtn.addEventListener('click', () => {
-          input.value = '';
+      // Clear email filter
+      if (clearEmailBtn) {
+        clearEmailBtn.addEventListener('click', () => {
+          emailInput.value = '';
+          form.submit();
+        });
+      }
+
+      // Clear subject filter
+      if (clearSubjectBtn) {
+        clearSubjectBtn.addEventListener('click', () => {
+          subjectInput.value = '';
           form.submit();
         });
       }
     });
   </script>
+
 
 </body>
 </html>
