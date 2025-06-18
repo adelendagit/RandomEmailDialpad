@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Welcome, <%= user.name %></title>
+  <style>
+    body { font-family: sans-serif; text-align: center; margin-top: 40px; background: #f2f2f2; }
+    h1 { font-size: 1.8em; }
+    .menu {
+      display: inline-block;
+      margin-top: 2em;
+      text-align: left;
+    }
+    .menu a {
+      display: block;
+      padding: 10px 20px;
+      margin: 8px 0;
+      background: white;
+      border-radius: 6px;
+      text-decoration: none;
+      color: #333;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+    }
+    .menu a:hover {
+      background: #0078d4;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+  <h1>Welcome, <%= user.name %></h1>
+  <% if (photoDataUrl) { %>
+    <img src="<%= photoDataUrl %>" alt="Profile photo" style="width: 120px; height: 120px; border-radius: 50%; margin: 1em auto; display: block;" />
+  <% } %>
+  <% if (user.email) { %>
+    <p style="color: #666; margin-top: -10px; text-align: center; font-size: 0.95em;"><%= user.email %></p>
+  <% } %>
+  <div class="menu">
+    <a href="/shared-libraries">📂 View Shared Libraries</a>
+    <a href="/files">📁 View Personal Files</a>
+    <a href="/email/history">🔍 Search Email History</a>
+    <a href="/send-email">✉️ Send an Email</a>
+    <a href="/logout">🔓 Logout</a>
+  </div>
+</body>
+</html>

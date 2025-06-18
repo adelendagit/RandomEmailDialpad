@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Library Contents</title>
+  <style>
+    body { font-family: sans-serif; padding: 2em; background: #f2f2f2; }
+    ul { list-style-type: none; padding: 0; }
+    li { background: white; padding: 10px; margin-bottom: 10px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h1>Files in Shared Library</h1>
+  <p><a href="/shared-libraries">← Back to Libraries</a></p>
+
+  <% if (items.length === 0) { %>
+    <p>No files or folders found.</p>
+  <% } else { %>
+    <ul>
+      <% items.forEach(item => { %>
+        <li>
+          <% if (item.folder) { %>
+            📁 <a href="/shared-library/<%= siteId %>/<%= driveId %>/folder/<%= item.id %>"><%= item.name %></a>
+          <% } else { %>
+            📄 <a href="<%= item.webUrl %>" target="_blank"><%= item.name %></a>
+          <% } %>
+        </li>
+      <% }) %>
+    </ul>
+  <% } %>
+</body>
+</html>

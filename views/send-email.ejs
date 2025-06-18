@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Send Email</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 40px auto; }
+    input, textarea { width: 100%; padding: 8px; margin-bottom: 12px; }
+    button { padding: 10px 20px; }
+  </style>
+</head>
+<body>
+  <h1>Send Email as <%= user.name %></h1>
+  <form method="POST" action="/send-email">
+    <label>To:</label>
+    <input type="email" name="to" required>
+
+    <label>Subject:</label>
+    <input type="text" name="subject" required>
+
+    <label>Body:</label>
+    <textarea name="body" rows="6" required></textarea>
+
+    <button type="submit">Send</button>
+  </form>
+</body>
+</html>
